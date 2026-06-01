@@ -109,12 +109,17 @@ def fetch_live_gold_data(period: str = "5d", interval: str = "1m") -> Optional[p
         df.columns = [c.lower() for c in df.columns]
         df = df[["open", "high", "low", "close", "volume"]].copy()
         
-        # --- FROZEN BAR FIX (BUG 3) ---
-        # 1. Filter out 0 volume
-        df = df[df["volume"] > 0].copy()
-        
-        # 2. Filter out perfectly flat bars (stale pricing where high==low and open==close)
-        df = df[~((df["high"] == df["low"]) & (df["open"] == df["close"]))].copy()
+        # --- FROZEN BAR FIX (MODIFIED FOR INSTANT LIVE FEED) ---
+        # We must NOT drop the most recent proxy bars even if they are flat/0 volume.
+        # Crypto proxies often have 0 volume in 1m. Dropping them causes a 3-5 minute lag.
+        if not df.empty:
+            recent_cutoff = df.index[-1] - pd.Timedelta(minutes=10)
+            is_recent = df.index >= recent_cutoff
+            is_valid_volume = df["volume"] > 0
+            is_not_flat = ~((df["high"] == df["low"]) & (df["open"] == df["close"]))
+            
+            # Keep if it's recent, OR (has volume AND is not flat)
+            df = df[is_recent | (is_valid_volume & is_not_flat)].copy()
         
         # Extract DXY, US10Y and Silver closes (Forward fill to handle slightly misaligned ticks)
         df["dxy"] = df_all["DX-Y.NYB"]["Close"].ffill()
@@ -123,6 +128,17 @@ def fetch_live_gold_data(period: str = "5d", interval: str = "1m") -> Optional[p
         df["gvz"] = df_all["^GVZ"]["Close"].ffill()
         df["tip"] = df_all["TIP"]["Close"].ffill()
         
+        # Forward fill up to the current wall-clock minute to eliminate ANY yfinance cache lag
+        if not df.empty:
+            current_minute = pd.Timestamp.now(tz=df.index.tz).floor("min")
+            # If our last bar is behind the actual clock, fill the gap with synthetic bars
+            if df.index[-1] < current_minute:
+                missing_idx = pd.date_range(start=df.index[-1] + pd.Timedelta(minutes=1), end=current_minute, freq="min")
+                if not missing_idx.empty:
+                    missing_df = pd.DataFrame(index=missing_idx, columns=df.columns)
+                    df = pd.concat([df, missing_df])
+                    df = df.ffill()
+
         df.dropna(inplace=True)
         df["gvz_zscore_20"] = (df["gvz"] - df["gvz"].rolling(20).mean()) / df["gvz"].rolling(20).std()
 
