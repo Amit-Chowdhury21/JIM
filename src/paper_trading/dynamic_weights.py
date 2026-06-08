@@ -34,36 +34,32 @@ from loguru import logger
 # per market regime, inspired by real multi-model quant allocations.
 
 REGIME_BASE_WEIGHTS: Dict[str, Dict[str, float]] = {
-    # Weights redistribute to the 6 base models ONLY.
+    # Weights redistribute to the 4 pro models ONLY.
     # Ensemble is set to 0.0 because it already aggregates all model
     # outputs internally — giving it a dynamic weight would double-count.
-    # The Ensemble's confidence passes through process_signal() unscaled.
     "GROWTH": {
-        "wavelet":  0.36,   # Best denoiser in trending markets — highest allocation
-        "hmm":      0.14,   # Regime detection useful but less critical in growth
-        "lstm":     0.17,   # Temporal momentum captures growth trends
-        "tft":      0.11,   # Multi-horizon attention adds diversity
-        "genetic":  0.08,   # Rule-based voting as contrarian check
-        "hmm_pro":  0.12,   # GMMHMM regime detector — strong directional signal
-        "ensemble": 0.10,   # Meta output reserve — blended aggregator confidence
+        "wavelet_pro": 0.25,
+        "hmm_pro": 0.10,
+        "lstm": 0.25,
+        "tft_pro": 0.15,
+        "tft_pro_max": 0.25,
+        "ensemble": 0.00,
     },
     "NORMAL": {
-        "wavelet":  0.30,   # Denoising shines in noisy/normal markets
-        "hmm":      0.20,   # Regime awareness keeps positioning correct
-        "lstm":     0.15,   # EMA/MACD proxy captures mean-reversion
-        "tft":      0.10,   # RSI/BB proxy provides multi-scale signal
-        "genetic":  0.10,   # SMA crossover rules useful in ranging markets
-        "hmm_pro":  0.14,   # GMMHMM regime detector — strong in range-bound markets
-        "ensemble": 0.10,   # Meta output reserve — blended aggregator confidence
+        "wavelet_pro": 0.20,
+        "hmm_pro": 0.20,
+        "lstm": 0.15,
+        "tft_pro": 0.20,
+        "tft_pro_max": 0.25,
+        "ensemble": 0.00,
     },
     "CRISIS": {
-        "wavelet":  0.21,   # Denoising partially overwhelmed by crisis noise
-        "hmm":      0.26,   # Regime detection prevents catastrophic losses
-        "lstm":     0.09,   # Momentum models whipsaw in crisis — reduce
-        "tft":      0.06,   # Multi-scale RSI less reliable in crisis
-        "genetic":  0.12,   # Breakout detection valuable in volatile markets
-        "hmm_pro":  0.13,   # GMMHMM regime detector — crisis transition detection
-        "ensemble": 0.10,   # Meta output reserve — blended aggregator confidence (constant)
+        "wavelet_pro": 0.10,
+        "hmm_pro": 0.30,
+        "lstm": 0.10,
+        "tft_pro": 0.20,
+        "tft_pro_max": 0.30,
+        "ensemble": 0.00,
     },
 }
 
@@ -153,13 +149,13 @@ class DynamicWeightAdjuster:
         )
 
     def get_weights(self, regime: str = "NORMAL",
-                    current_signals: Optional[Dict[str, str]] = None) -> Dict[str, float]:
+                    current_signals: Optional[Dict[str, any]] = None) -> Dict[str, float]:
         """
         Calculate current model weights.
 
         Args:
             regime: Current market regime (GROWTH/NORMAL/CRISIS)
-            current_signals: Dict of {model_name: signal_direction} for agreement calc
+            current_signals: Dict of {model_name: ModelSignal} for confidence and agreement
 
         Returns:
             Dict of {model_name: weight} that sums to 1.0
@@ -172,9 +168,12 @@ class DynamicWeightAdjuster:
         # Step 2: Apply performance adaptation (if enough data)
         adapted_weights = self._apply_performance_adaptation(base_weights)
 
-        # Step 3: Apply signal agreement bonus/penalty
+        # Step 3: Apply signal agreement bonus/penalty and Confidence multipliers
         if current_signals:
             adapted_weights = self._apply_agreement_adjustment(
+                adapted_weights, current_signals
+            )
+            adapted_weights = self._apply_confidence_adjustment(
                 adapted_weights, current_signals
             )
 
@@ -318,7 +317,11 @@ class DynamicWeightAdjuster:
 
         # Count direction votes
         direction_counts: Dict[str, int] = {}
-        for direction in current_signals.values():
+        for signal_obj in current_signals.values():
+            if hasattr(signal_obj, "signal_type"):
+                direction = signal_obj.signal_type.value
+            else:
+                direction = signal_obj
             direction_counts[direction] = direction_counts.get(direction, 0) + 1
 
         # Find majority direction
@@ -328,20 +331,45 @@ class DynamicWeightAdjuster:
         majority_direction = max(direction_counts, key=direction_counts.get)
         majority_count = direction_counts[majority_direction]
 
-        # Only apply if there's a clear majority (≥4 of 7)
-        if majority_count < 4:
+        # Only apply if there's a clear majority (≥3 of 4)
+        if majority_count < 3:
             return weights
 
         adjusted = {}
         for model_name, weight in weights.items():
             signal = current_signals.get(model_name)
-            if signal == majority_direction:
+            # Check if signal matches majority direction
+            signal_dir = getattr(signal, "signal_type", None)
+            if signal_dir:
+                signal_dir = signal_dir.value
+            else:
+                signal_dir = signal
+                
+            if signal_dir == majority_direction:
                 adjusted[model_name] = weight * self.AGREEMENT_BOOST
-            elif signal is not None:
+            elif signal_dir is not None:
                 adjusted[model_name] = weight * self.DISAGREEMENT_PENALTY
             else:
                 adjusted[model_name] = weight
 
+        return adjusted
+
+    def _apply_confidence_adjustment(
+        self, weights: Dict[str, float],
+        current_signals: Dict[str, any]
+    ) -> Dict[str, float]:
+        """
+        Boost models that have high confidence in their signal.
+        """
+        adjusted = {}
+        for model_name, weight in weights.items():
+            signal = current_signals.get(model_name)
+            if signal and hasattr(signal, 'confidence'):
+                # Map confidence (0-1) to multiplier (0.5 to 1.5)
+                conf_multiplier = 0.5 + (signal.confidence * 1.0)
+                adjusted[model_name] = weight * conf_multiplier
+            else:
+                adjusted[model_name] = weight
         return adjusted
 
     def _normalize_with_bounds(

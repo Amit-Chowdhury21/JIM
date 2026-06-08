@@ -50,7 +50,7 @@ LIVE_MODEL_SIGNALS: Dict[str, Dict] = {
         "last_updated": None,
         "error": None,
     }
-    for model in ["wavelet_pro", "wavelet_basic", "hmm", "lstm", "tft", "genetic", "hmm_pro", "ensemble"]
+    for model in ["wavelet_pro", "wavelet_basic", "hmm", "lstm", "lstm_v21", "tft", "tft_pro", "tft_pro_max", "genetic", "hmm_pro", "ensemble", "ensemble_v21", "ensemble_v23"]
 }
 
 # Current gold price (updated on each fetch)
@@ -135,8 +135,7 @@ def fetch_live_gold_data(period: str = "5d", interval: str = "1m") -> Optional[p
             if df.index[-1] < current_minute:
                 missing_idx = pd.date_range(start=df.index[-1] + pd.Timedelta(minutes=1), end=current_minute, freq="min")
                 if not missing_idx.empty:
-                    missing_df = pd.DataFrame(index=missing_idx, columns=df.columns)
-                    df = pd.concat([df, missing_df])
+                    df = df.reindex(df.index.union(missing_idx))
                     df = df.ffill()
 
         df.dropna(inplace=True)
@@ -193,7 +192,21 @@ def fetch_metalpriceapi_spot() -> Optional[float]:
     import requests
     from dotenv import load_dotenv
 
-    # 1. Try free Gold-API.com first (unlimited, no key required)
+    # 0. Try tvDatafeed for instant OANDA XAUUSD spot price
+    try:
+        from tvDatafeed import TvDatafeed, Interval
+        import logging
+        logging.getLogger("tvDatafeed").setLevel(logging.CRITICAL)
+        tv = TvDatafeed()
+        df_tv = tv.get_hist(symbol='XAUUSD', exchange='OANDA', interval=Interval.in_1_minute, n_bars=1)
+        if df_tv is not None and not df_tv.empty:
+            price = df_tv["close"].iloc[-1]
+            logger.debug(f"Fetched real-time gold spot price from tvDatafeed (OANDA): ${price:.2f}")
+            return round(float(price), 2)
+    except Exception as e:
+        logger.debug(f"tvDatafeed fetch failed: {e}")
+
+    # 1. Try free Gold-API.com first (unlimited, no key required, most reliable)
     try:
         resp = requests.get("https://api.gold-api.com/price/XAU", timeout=5)
         if resp.status_code == 200:
@@ -203,7 +216,7 @@ def fetch_metalpriceapi_spot() -> Optional[float]:
                 logger.debug(f"Fetched real-time gold spot price from Gold-API.com: ${price:.2f}")
                 return round(float(price), 2)
     except Exception as e:
-        logger.warning(f"Gold-API.com fetch failed: {e}")
+        logger.debug(f"Gold-API.com fetch failed: {e}")
 
     # 2. Fallback to MetalPriceAPI
     load_dotenv()
@@ -241,7 +254,8 @@ def fetch_metalpriceapi_gs_spot() -> tuple[Optional[float], Optional[float]]:
     import requests
     from dotenv import load_dotenv
 
-    # 1. Try free Gold-API.com first (unlimited, no key required)
+    # 0. Skip tvDatafeed for now - it's unreliable without login
+    # Try free Gold-API.com first (unlimited, no key required)
     try:
         r_gold = requests.get("https://api.gold-api.com/price/XAU", timeout=5)
         r_silver = requests.get("https://api.gold-api.com/price/XAG", timeout=5)
@@ -265,7 +279,7 @@ def fetch_metalpriceapi_gs_spot() -> tuple[Optional[float], Optional[float]]:
             logger.debug(f"Fetched real-time spot prices from Gold-API.com: Gold=${gold_price}, Silver=${silver_price}")
             return gold_price, silver_price
     except Exception as e:
-        logger.warning(f"Gold-API.com (G/S) fetch failed: {e}")
+        logger.debug(f"Gold-API.com (G/S) fetch failed: {e}")
 
     # 2. Fallback to MetalPriceAPI
     load_dotenv()
@@ -303,144 +317,11 @@ def fetch_metalpriceapi_gs_spot() -> tuple[Optional[float], Optional[float]]:
 def run_wavelet(df: pd.DataFrame) -> Dict:
     """
     Wavelet signal using WaveletPro (professional 6-level DWT model).
-    
-    This replaces the basic 5-level model with the production-ready WaveletPro
-    that includes:
-    - 6-level DWT decomposition
-    - Wavelet Oscillator (D3 + D4)
-    - Continuous Wavelet Transform (CWT)
-    - 30+ engineered features
     """
     try:
         return run_wavelet_pro(df)
     except Exception as e:
-        logger.warning(f"Wavelet Pro fallback to basic model: {e}")
-        # Fallback to basic wavelet if WaveletPro fails
-        try:
-            prices = df["close"].values
-
-            # Need at least 32 samples (2^5 for 5-level decomposition)
-            if len(prices) < 32:
-                return {"signal": "HOLD", "confidence": 0.0, "reasoning": "Insufficient data"}
-
-            try:
-                import pywt
-                import warnings
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    coeffs = pywt.wavedec(prices, "db4", level=5)
-                    # Zero out detail coefficients to denoise
-                    coeffs[1:] = [np.zeros_like(v) for v in coeffs[1:]]
-                    trend = pywt.waverec(coeffs, "db4")
-                pywt_available = True
-            except ImportError:
-                # Proxy if pywt is unavailable
-                trend = pd.Series(prices).rolling(window=10).mean().bfill().values
-                pywt_available = False
-
-            # Signal: compare last 3 denoised values to determine trend
-            if len(trend) >= 3:
-                slope = (trend[-1] - trend[-3]) / (abs(trend[-3]) + 1e-8)
-                
-                # Dynamic confidence based on slope magnitude
-                abs_slope = abs(slope)
-                # Base 50% + up to 45% based on slope (0.001 slope adds 40%)
-                base_conf = 0.50 + min(abs_slope * 400.0, 0.45)
-                
-                # Penalty if using fallback model
-                confidence = base_conf if pywt_available else base_conf * 0.70
-
-                if slope > 0.0001:
-                    signal = "LONG"
-                    reasoning = f"Wavelet trend slope +{slope:.4f} → uptrend detected"
-                elif slope < -0.0001:
-                    signal = "SHORT"
-                    reasoning = f"Wavelet trend slope {slope:.4f} → downtrend detected"
-                else:
-                    signal = "HOLD"
-                    confidence = 0.15
-                    reasoning = f"Wavelet trend flat (slope={slope:.6f})"
-            else:
-                signal = "HOLD"
-                confidence = 0.0
-                reasoning = "Insufficient trend data"
-
-            return {"signal": signal, "confidence": round(confidence, 3), "reasoning": reasoning}
-
-        except Exception as e_fallback:
-            logger.error(f"Both Wavelet Pro and basic fallback failed: {e_fallback}")
-            return {
-                "signal": "HOLD",
-                "confidence": 0.0,
-                "reasoning": f"Wavelet error: {str(e_fallback)[:80]}"
-            }
         logger.warning(f"Wavelet model error: {e}")
-        return {"signal": "HOLD", "confidence": 0.0, "reasoning": f"Error: {str(e)[:80]}"}
-
-
-def run_wavelet_basic(df: pd.DataFrame) -> Dict:
-    """
-    Basic 5-level wavelet signal (original model for comparison).
-    
-    Features:
-    - 5-level DWT decomposition using Daubechies-4 (db4)
-    - Simple trend detection via coefficient zeroing
-    - Lightweight, fast execution
-    - For comparison with WaveletPro (6-level + CWT + features)
-    """
-    try:
-        prices = df["close"].values
-
-        # Need at least 32 samples (2^5 for 5-level decomposition)
-        if len(prices) < 32:
-            return {"signal": "HOLD", "confidence": 0.0, "reasoning": "Insufficient data for 5-level DWT"}
-
-        try:
-            import pywt
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                coeffs = pywt.wavedec(prices, "db4", level=5)
-                # Zero out detail coefficients to denoise
-                coeffs[1:] = [np.zeros_like(v) for v in coeffs[1:]]
-                trend = pywt.waverec(coeffs, "db4")
-            pywt_available = True
-        except ImportError:
-            # Proxy if pywt is unavailable
-            trend = pd.Series(prices).rolling(window=10).mean().bfill().values
-            pywt_available = False
-
-        # Signal: compare last 3 denoised values to determine trend
-        if len(trend) >= 3:
-            slope = (trend[-1] - trend[-3]) / (abs(trend[-3]) + 1e-8)
-            
-            # Dynamic confidence based on slope magnitude
-            abs_slope = abs(slope)
-            # Base 50% + up to 45% based on slope
-            base_conf = 0.50 + min(abs_slope * 400.0, 0.45)
-            
-            # Penalty if using fallback model
-            confidence = base_conf if pywt_available else base_conf * 0.70
-
-            if slope > 0.0001:
-                signal = "LONG"
-                reasoning = f"Basic 5-level: trend slope +{slope:.4f} → uptrend"
-            elif slope < -0.0001:
-                signal = "SHORT"
-                reasoning = f"Basic 5-level: trend slope {slope:.4f} → downtrend"
-            else:
-                signal = "HOLD"
-                confidence = 0.15
-                reasoning = f"Basic 5-level: flat trend (slope={slope:.6f})"
-        else:
-            signal = "HOLD"
-            confidence = 0.0
-            reasoning = "Insufficient trend data"
-
-        return {"signal": signal, "confidence": round(confidence, 3), "reasoning": reasoning}
-
-    except Exception as e:
-        logger.error(f"Basic wavelet failed: {e}")
         return {"signal": "HOLD", "confidence": 0.0, "reasoning": f"Error: {str(e)[:80]}"}
 
 
@@ -470,12 +351,18 @@ def run_hmm(df: pd.DataFrame) -> Dict:
         return {"signal": "HOLD", "confidence": 0.0, "regime": "UNKNOWN", "reasoning": f"Error: {str(e)[:80]}"}
 
 
-# ── CNN-LSTM-Attention Model (Phase 8-10: Real Deep Learning Inference) ──
-# Loaded once at import time. Falls back to heuristic proxy if no trained model exists.
-_lstm_model = None
-_lstm_preprocessor = None
-_lstm_feature_engineer = None
-_lstm_model_available = False
+# ── CNN-LSTM-Attention Models ──
+# v1.0 Model (Phase 1 Baseline)
+_lstm_model_v1 = None
+_lstm_preprocessor_v1 = None
+_lstm_feature_engineer_v1 = None
+_lstm_model_v1_available = False
+
+# v2.x Models (Triple Barrier)
+_lstm_model_v2 = None
+_lstm_preprocessor_v2 = None
+_lstm_feature_engineer_v2 = None
+_lstm_model_v2_available = False
 
 try:
     import os as _os
@@ -483,25 +370,46 @@ try:
     from src.models.lstm_features import LSTMFeatureEngineer
     from src.models.lstm_preprocessor import LSTMPreprocessor
 
-    _lstm_model_path = _os.path.abspath(_os.path.join(
-        _os.path.dirname(__file__), '..', '..', 'models', 'lstm_cnn_attention.pt'
-    ))
-    _lstm_preprocessor_path = _os.path.abspath(_os.path.join(
-        _os.path.dirname(__file__), '..', '..', 'models', 'lstm_preprocessor.joblib'
-    ))
+    # Load v1.0 Model
+    _path_v1 = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', 'models', 'lstm_cnn_attention_1m.pt'))
+    _prep_v1 = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', 'models', 'lstm_preprocessor_1m.joblib'))
+    
+    if _os.path.exists(_path_v1) and _os.path.exists(_prep_v1):
+        try:
+            _lstm_model_v1 = GoldLSTMModel()
+            _lstm_model_v1.load(_path_v1)
+        except Exception as _inner_e:
+            if "kernel image is available" in str(_inner_e) or "CUDA error" in str(_inner_e):
+                _lstm_model_v1 = GoldLSTMModel(device="cpu")
+                _lstm_model_v1.load(_path_v1)
+            else:
+                raise _inner_e
+        _lstm_preprocessor_v1 = LSTMPreprocessor.load(_prep_v1)
+        _lstm_feature_engineer_v1 = LSTMFeatureEngineer()
+        _lstm_model_v1_available = True
+        logger.info(f"v1.0 Baseline Model loaded from {_path_v1}")
 
-    if _os.path.exists(_lstm_model_path) and _os.path.exists(_lstm_preprocessor_path):
-        _lstm_model = GoldLSTMModel()
-        _lstm_model.load(_lstm_model_path)
-        _lstm_preprocessor = LSTMPreprocessor.load(_lstm_preprocessor_path)
-        _lstm_feature_engineer = LSTMFeatureEngineer()
-        _lstm_model_available = True
-        logger.info(f"CNN-LSTM-Attention model loaded from {_lstm_model_path}")
-    else:
-        logger.info("No trained LSTM model found — using heuristic proxy. "
-                     "Run 'python scripts/train_lstm_model.py' to train.")
+    # Load v2.0 Model
+    _path_v2 = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', 'models', 'lstm_v2.0_triple_barrier.pt'))
+    _prep_v2 = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', 'models', 'lstm_preprocessor_v2.0.joblib'))
+    
+    if _os.path.exists(_path_v2) and _os.path.exists(_prep_v2):
+        try:
+            _lstm_model_v2 = GoldLSTMModel()
+            _lstm_model_v2.load(_path_v2)
+        except Exception as _inner_e:
+            if "kernel image is available" in str(_inner_e) or "CUDA error" in str(_inner_e):
+                _lstm_model_v2 = GoldLSTMModel(device="cpu")
+                _lstm_model_v2.load(_path_v2)
+            else:
+                raise _inner_e
+        _lstm_preprocessor_v2 = LSTMPreprocessor.load(_prep_v2)
+        _lstm_feature_engineer_v2 = LSTMFeatureEngineer()
+        _lstm_model_v2_available = True
+        logger.info(f"v2.x Model loaded from {_path_v2}")
+
 except Exception as _e:
-    logger.warning(f"LSTM model loading failed: {_e} — using heuristic proxy")
+    logger.warning(f"LSTM model loading failed: {_e}")
 
 
 def _run_lstm_heuristic(df: pd.DataFrame) -> Dict:
@@ -555,24 +463,24 @@ def run_lstm(df: pd.DataFrame) -> Dict:
     Otherwise falls back to the heuristic LSTM proxy.
     """
     try:
-        if not _lstm_model_available:
+        if not _lstm_model_v1_available:
             return _run_lstm_heuristic(df)
 
         import time
         t0 = time.perf_counter()
 
         # 1. Feature engineering
-        features = _lstm_feature_engineer.transform(df)
+        features = _lstm_feature_engineer_v1.transform(df)
 
-        if len(features) < _lstm_preprocessor.seq_len:
-            logger.debug(f"LSTM: insufficient features ({len(features)} < {_lstm_preprocessor.seq_len}), using proxy")
+        if len(features) < _lstm_preprocessor_v1.seq_len:
+            logger.debug(f"LSTM v1.0: insufficient features ({len(features)} < {_lstm_preprocessor_v1.seq_len}), using proxy")
             return _run_lstm_heuristic(df)
 
         # 2. Preprocess (scale + sequence)
-        X = _lstm_preprocessor.transform_live(features)
+        X = _lstm_preprocessor_v1.transform_live(features)
 
         # 3. Model inference
-        result = _lstm_model.predict(X, temperature=1.2)
+        result = _lstm_model_v1.predict(X, temperature=1.2)
 
         latency = (time.perf_counter() - t0) * 1000
 
@@ -592,186 +500,191 @@ def run_lstm(df: pd.DataFrame) -> Dict:
         logger.warning(f"LSTM model error: {e}")
         return {"signal": "HOLD", "confidence": 0.0, "reasoning": f"Error: {str(e)[:80]}"}
 
-
-
-def run_tft(df: pd.DataFrame) -> Dict:
-    """TFT forecaster: multi-scale attention-based signal."""
+def run_lstm_v2_base(df: pd.DataFrame) -> Dict:
+    """v2.0 Base Execution Engine (Single pass on Triple Barrier Model)."""
     try:
-        closes = df["close"].values
-        returns = df["returns"].values
-        highs = df["high"].values if "high" in df.columns else closes
-        lows = df["low"].values if "low" in df.columns else closes
+        if not _lstm_model_v2_available:
+            return _run_lstm_heuristic(df)
 
-        # Multi-window RSI (approximates TFT's multi-horizon attention)
-        def rsi(series, period=14):
-            delta = np.diff(series)
-            gain = np.where(delta > 0, delta, 0)
-            loss = np.where(delta < 0, -delta, 0)
-            avg_gain = np.mean(gain[-period:]) + 1e-10
-            avg_loss = np.mean(loss[-period:]) + 1e-10
-            rs = avg_gain / avg_loss
-            return 100 - 100 / (1 + rs)
+        import time
+        t0 = time.perf_counter()
 
-        rsi_14 = rsi(closes, 14)
-        rsi_7 = rsi(closes, 7)
+        features = _lstm_feature_engineer_v2.transform(df)
+        if len(features) < _lstm_preprocessor_v2.seq_len:
+            return _run_lstm_heuristic(df)
 
-        # ATR-normalized momentum
-        atr = np.mean(np.abs(highs[-14:] - lows[-14:]))
-        momentum_14 = (closes[-1] - closes[-14]) / (atr + 1e-8)
-
-        # Bollinger band position
-        bb_mean = np.mean(closes[-20:])
-        bb_std = np.std(closes[-20:])
-        bb_pos = (closes[-1] - bb_mean) / (2 * bb_std + 1e-8)  # -1 to 1
-
-        # TFT attention-inspired weighting across time scales
-        short_signal = np.sign(rsi_7 - 50) * (abs(rsi_7 - 50) / 50)
-        long_signal = np.sign(rsi_14 - 50) * (abs(rsi_14 - 50) / 50)
-        trend_signal = np.sign(momentum_14) * min(abs(momentum_14) / 5, 1.0)
-
-        combined = short_signal * 0.3 + long_signal * 0.4 + trend_signal * 0.3
-        # Limit contrarian BB adjustment
-        bb_adj = np.clip(bb_pos * 0.15, -0.25, 0.25)
-        combined -= bb_adj
+        X = _lstm_preprocessor_v2.transform_live(features)
+        result = _lstm_model_v2.predict(X, temperature=1.2)
         
-        # TFT Macro Attention: Yield & DXY Curve Inversion
-        macro_reasoning = ""
-        if "dxy_returns" in df.columns and "us10y_returns" in df.columns:
-            dxy_roc = df["dxy_returns"].iloc[-5:].mean() * 1000
-            yield_roc = df["us10y_returns"].iloc[-5:].mean() * 1000
-            
-            if dxy_roc > 1.5 or yield_roc > 1.5:
-                combined -= 0.4 # Severe bearish override
-                macro_reasoning = f" (MACRO FEAR: DXY/US10Y Spiking)"
-            elif dxy_roc < -1.5 or yield_roc < -1.5:
-                combined += 0.4 # Severe bullish override
-                macro_reasoning = f" (MACRO GREED: DXY/US10Y Dropping)"
-
-        # Gold-Silver Ratio adjustment (Investopedia)
-        if "gold_silver_ratio" in df.columns:
-            gs_ratio = df["gold_silver_ratio"].iloc[-1]
-            if gs_ratio > 85:
-                combined -= 0.15
-                macro_reasoning += f" (GSR High: {gs_ratio:.1f})"
-            elif gs_ratio < 75:
-                combined += 0.15
-                macro_reasoning += f" (GSR Low: {gs_ratio:.1f})"
-
-        confidence = min(abs(combined) * 0.9 + 0.25, 0.94)
-
-        if combined > 0.2:
-            signal = "LONG"
-        elif combined < -0.2:
-            signal = "SHORT"
-        else:
-            signal = "HOLD"
-
+        latency = (time.perf_counter() - t0) * 1000
         return {
-            "signal": signal,
-            "confidence": round(float(confidence), 3),
-            "reasoning": f"TFT-proxy: RSI14={rsi_14:.1f}, RSI7={rsi_7:.1f}, BB_pos={bb_pos:.2f}, score={combined:.3f}{macro_reasoning}",
+            "signal": result["signal"],
+            "confidence": round(float(result["confidence"]), 3),
+            "reasoning": (
+                f"v2.0-Base: {result['signal']} "
+                f"P(S={result['probabilities']['SHORT']:.0%}/"
+                f"H={result['probabilities']['HOLD']:.0%}/"
+                f"L={result['probabilities']['LONG']:.0%}) "
+                f"{latency:.0f}ms"
+            ),
         }
-
     except Exception as e:
-        logger.warning(f"TFT model error: {e}")
+        logger.warning(f"LSTM v2.0 Base error: {e}")
         return {"signal": "HOLD", "confidence": 0.0, "reasoning": f"Error: {str(e)[:80]}"}
 
-
-def run_genetic(df: pd.DataFrame) -> Dict:
-    """Genetic algorithm: evolved rule-based signal voting."""
+def run_lstm_v21(df: pd.DataFrame) -> Dict:
+    """
+    v2.1 Execution Engine:
+    Runs the CNN-LSTM-Attention model through the MCDropoutInferencer
+    and filters it through the SignalPolicy.
+    """
     try:
-        closes = df["close"].values
-        returns = df["returns"].values
+        from src.paper_trading.v21_execution import SignalPolicy
+        policy = SignalPolicy(long_threshold=0.45, short_threshold=0.65, max_uncertainty=0.08)
+        
+        if not _lstm_model_v2_available:
+            return policy._reject("HOLD", "Model not loaded (heuristic proxy active)")
 
-        votes = []
-        reasons = []
+        import time
+        t0 = time.perf_counter()
 
-        # Rule 1: SMA crossover (evolved: 10/30)
-        if len(closes) >= 30:
-            sma10 = np.mean(closes[-10:])
-            sma30 = np.mean(closes[-30:])
-            if sma10 > sma30 * 1.001:
-                votes.append(1)
-                reasons.append(f"SMA10>{sma30:.0f}")
-            elif sma10 < sma30 * 0.999:
-                votes.append(-1)
-                reasons.append(f"SMA10<{sma30:.0f}")
-            else:
-                votes.append(0)
+        features = _lstm_feature_engineer_v2.transform(df)
+        if len(features) < _lstm_preprocessor_v2.seq_len:
+            return policy._reject("HOLD", f"Insufficient features ({len(features)})")
 
-        # Rule 2: Momentum rule (evolved: 5-day return threshold)
-        if len(returns) >= 5:
-            mom5 = np.sum(returns[-5:])
-            if mom5 > 0.008:
-                votes.append(1)
-                reasons.append(f"Mom5d=+{mom5:.3f}")
-            elif mom5 < -0.008:
-                votes.append(-1)
-                reasons.append(f"Mom5d={mom5:.3f}")
-            else:
-                votes.append(0)
-
-        # Rule 3: Volume-weighted return (evolved)
-        if "volume" in df.columns and len(df) >= 10:
-            recent = df.iloc[-10:]
-            vwap_ret = np.average(recent["returns"], weights=recent["volume"] + 1)
-            if vwap_ret > 0.001:
-                votes.append(1)
-                reasons.append(f"VWAP_ret=+{vwap_ret:.4f}")
-            elif vwap_ret < -0.001:
-                votes.append(-1)
-                reasons.append(f"VWAP_ret={vwap_ret:.4f}")
-            else:
-                votes.append(0)
-
-        # Rule 4: High-Low range expansion (volatility breakout)
-        if len(closes) >= 20:
-            range_now = df["high"].iloc[-1] - df["low"].iloc[-1] if "high" in df.columns else 0
-            range_avg = (df["high"] - df["low"]).iloc[-20:].mean() if "high" in df.columns else 1
-            if range_now > range_avg * 1.3 and returns[-1] > 0:
-                votes.append(1)
-                reasons.append("breakout_up")
-            elif range_now > range_avg * 1.3 and returns[-1] < 0:
-                votes.append(-1)
-                reasons.append("breakout_dn")
-            else:
-                votes.append(0)
-
-        # Rule 5: Recent reversal detection
-        if len(returns) >= 3:
-            if returns[-3] < -0.005 and returns[-2] < -0.003 and returns[-1] > 0.002:
-                votes.append(1)
-                reasons.append("reversal_long")
-            elif returns[-3] > 0.005 and returns[-2] > 0.003 and returns[-1] < -0.002:
-                votes.append(-1)
-                reasons.append("reversal_short")
-            else:
-                votes.append(0)
-
-        if not votes:
-            return {"signal": "HOLD", "confidence": 0.0, "reasoning": "No rules fired"}
-
-        score = np.mean(votes)
-        # Confidence = agreement among rules
-        agreement = abs(score)
-        confidence = min(agreement * 0.85 + 0.20, 0.90)
-
-        if score > 0.2:
-            signal = "LONG"
-        elif score < -0.2:
-            signal = "SHORT"
-        else:
-            signal = "HOLD"
-
-        return {
-            "signal": signal,
-            "confidence": round(float(confidence), 3),
-            "reasoning": f"Genetic ({len([v for v in votes if v != 0])}/{len(votes)} rules): " + ", ".join(reasons[:3]),
-        }
+        X = _lstm_preprocessor_v2.transform_live(features)
+        
+        # MCDropout (30 stochastic passes)
+        mcd_result = _lstm_model_v2.predict_mcdropout(X, n_passes=30, temperature=1.2)
+        
+        # Apply strict v2.1 execution policy
+        final_result = policy.evaluate(mcd_result)
+        
+        latency = (time.perf_counter() - t0) * 1000
+        final_result["reasoning"] = f"{final_result['reasoning']} ({latency:.0f}ms)"
+        
+        return final_result
 
     except Exception as e:
-        logger.warning(f"Genetic model error: {e}")
+        logger.warning(f"LSTM v2.1 model error: {e}")
         return {"signal": "HOLD", "confidence": 0.0, "reasoning": f"Error: {str(e)[:80]}"}
+
+def run_lstm_v23(df: pd.DataFrame, regime: str) -> Dict:
+    """
+    v2.3 Execution Engine:
+    Runs the CNN-LSTM-Attention model through the MCDropoutInferencer
+    and filters it through the AlphaSignalPolicy (Regime, Volatility, Event-State).
+    """
+    try:
+        from src.paper_trading.v23_execution import AlphaSignalPolicy
+        policy = AlphaSignalPolicy(base_long=0.45, base_short=0.65, max_uncertainty=0.08)
+        
+        if not _lstm_model_v2_available:
+            return policy._reject("HOLD", "Model not loaded (heuristic proxy active)")
+
+        import time
+        t0 = time.perf_counter()
+
+        features = _lstm_feature_engineer_v2.transform(df)
+        if len(features) < _lstm_preprocessor_v2.seq_len:
+            return policy._reject("HOLD", f"Insufficient features ({len(features)})")
+
+        X = _lstm_preprocessor_v2.transform_live(features)
+        
+        # MCDropout (30 stochastic passes)
+        mcd_result = _lstm_model_v2.predict_mcdropout(X, n_passes=30, temperature=1.2)
+        
+        # Extract volatility context for v2.3 policy
+        if "close" in df.columns:
+            rets = df["close"].pct_change()
+            vol_10 = rets.rolling(10).std().iloc[-1] if len(rets) >= 10 else 0.001
+            vol_10_mean = rets.rolling(10).std().mean() if len(rets) >= 10 else 0.001
+        else:
+            vol_10 = 0.001
+            vol_10_mean = 0.001
+            
+        if pd.isna(vol_10) or pd.isna(vol_10_mean):
+            vol_10, vol_10_mean = 0.001, 0.001
+            
+        # Apply strict v2.3 execution policy
+        final_result = policy.evaluate(mcd_result, regime, vol_10, vol_10_mean)
+        
+        latency = (time.perf_counter() - t0) * 1000
+        final_result["reasoning"] = f"{final_result['reasoning']} ({latency:.0f}ms)"
+        
+        return final_result
+
+    except Exception as e:
+        logger.warning(f"LSTM v2.3 model error: {e}")
+        return {"signal": "HOLD", "confidence": 0.0, "sizing_scalar": 0.0, "reasoning": f"Error: {str(e)[:80]}"}
+
+
+
+
+
+
+# ── TFT_Pro: professional Temporal Fusion Transformer ──────────────────────
+
+_tft_pro_forecaster = None
+
+def run_tft_pro(df: pd.DataFrame, regime: str = "NORMAL",
+                wavelet_info: Optional[Dict] = None,
+                hmm_info: Optional[Dict] = None) -> Dict:
+    """
+    TFT_Pro: Professional multi-horizon quantile forecaster.
+
+    Architecture: GRN + VSN + BiLSTM + Multi-Head Attention + Quantile Heads
+    Outputs: 3 horizons × 3 quantiles (10th, 50th, 90th percentile)
+    """
+    global _tft_pro_forecaster
+    try:
+        # Lazy-load the forecaster on first call
+        if _tft_pro_forecaster is None:
+            from src.models.tft_pro import TFTProForecaster
+            _tft_pro_forecaster = TFTProForecaster()
+
+        result = _tft_pro_forecaster.predict(
+            df, regime=regime,
+            wavelet_info=wavelet_info,
+            hmm_info=hmm_info,
+        )
+
+        if result is not None:
+            return result
+
+        # Fallback: no trained model or inference failed
+        return {"signal": "HOLD", "confidence": 0.0, "reasoning": "[TFT_Pro fallback] Inference returned None"}
+
+    except Exception as e:
+        logger.warning(f"TFT_Pro error: {e} — falling back to HOLD")
+        return {"signal": "HOLD", "confidence": 0.0, "reasoning": f"[TFT_Pro error: {str(e)[:40]}]"}
+
+# ── TFT_Pro_Max: professional Temporal Fusion Transformer (Max) ──
+
+_tft_pro_max_forecaster = None
+
+def run_tft_pro_max(df: pd.DataFrame, regime: str = "NORMAL") -> Dict:
+    global _tft_pro_max_forecaster
+    try:
+        if _tft_pro_max_forecaster is None:
+            from src.models.tft_pro_max import TFTProMaxForecaster
+            _tft_pro_max_forecaster = TFTProMaxForecaster()
+
+        result = _tft_pro_max_forecaster.predict(
+            df, regime=regime
+        )
+
+        if result is not None:
+            return result
+
+        return {"signal": "HOLD", "confidence": 0.0, "reasoning": "[TFT_Pro_Max fallback] Inference returned None"}
+
+    except Exception as e:
+        logger.warning(f"TFT_Pro_Max error: {e} — falling back to HOLD")
+        return {"signal": "HOLD", "confidence": 0.0, "reasoning": f"[TFT_Pro_Max error: {str(e)[:40]}]"}
+
+
+
 
 
 from sklearn.ensemble import RandomForestClassifier
@@ -794,210 +707,92 @@ try:
 except Exception as e:
     logger.info(f"No meta-learner found ({e}). Using heuristic ensemble.")
 
-
 # ============================================================================
-# REGIME-AWARE MODEL WEIGHTS
+# REGIME-AWARE ENSEMBLE ORCHESTRATION
 # ============================================================================
 
-_REGIME_WEIGHTS = {
-    "GROWTH": {
-        "wavelet": 0.20, "hmm": 0.20, "lstm": 0.15,
-        "tft": 0.13, "genetic": 0.13, "hmm_pro": 0.12,
-    },
-    "NORMAL": {
-        "wavelet": 0.20, "hmm": 0.15, "lstm": 0.25,
-        "tft": 0.18, "genetic": 0.08, "hmm_pro": 0.15,
-    },
-    "CRISIS": {
-        "wavelet": 0.15, "hmm": 0.25, "lstm": 0.18,
-        "tft": 0.18, "genetic": 0.11, "hmm_pro": 0.13,
-    },
-}
-
+from src.paper_trading.dynamic_weights import get_weight_adjuster
+from src.models.meta_decision_layer import MetaDecisionLayer
 
 def run_ensemble(individual_signals: Dict[str, Dict], regime: str = "NORMAL", macro_data: Optional[Dict] = None) -> Dict:
     """
-    Confidence-Weighted Voting Ensemble v2.0
-
-    Replaces the stale ML meta-learner with a transparent, robust ensemble:
-    1. Regime-aware model weights
-    2. Confidence-weighted directional scoring (LONG vs SHORT tug-of-war)
-    3. Agreement bonus / conflict penalty
-    4. Minimum quorum (≥2 directional votes)
-    5. Macro data adjustment (DXY / yields)
+    Professional Gold Ensemble 
     
-    NOTE: Handles both WaveletPro and basic wavelet for comparison.
-          Uses the wavelet signal with higher confidence for ensemble voting.
+    Uses DynamicWeightAdjuster (Base Weights + Multipliers) and MetaDecisionLayer 
+    (Position Sizing + Risk Gates) to compute the final ensemble score.
     """
     try:
-        # Prepare individual signals dict with unified wavelet vote
-        signals_for_ensemble = individual_signals.copy()
+        models = ["wavelet_pro", "hmm_pro", "lstm", "tft_pro", "tft_pro_max"]
         
-        # If both wavelet models are present, use the one with higher confidence
-        wavelet_pro_sig = individual_signals.get("wavelet_pro", {})
-        wavelet_basic_sig = individual_signals.get("wavelet_basic", {})
-        
-        if wavelet_pro_sig and wavelet_basic_sig:
-            pro_conf = float(wavelet_pro_sig.get("confidence", 0.0))
-            basic_conf = float(wavelet_basic_sig.get("confidence", 0.0))
-            # Use the wavelet model with higher confidence as the unified "wavelet" vote
-            best_wavelet = wavelet_pro_sig if pro_conf >= basic_conf else wavelet_basic_sig
-            signals_for_ensemble["wavelet"] = best_wavelet
-        elif wavelet_pro_sig:
-            signals_for_ensemble["wavelet"] = wavelet_pro_sig
-        elif wavelet_basic_sig:
-            signals_for_ensemble["wavelet"] = wavelet_basic_sig
-        
-        models = ["wavelet", "hmm", "lstm", "tft", "genetic", "hmm_pro"]
-
-        # ── 1. Get regime-specific weights ──
-        weights = _REGIME_WEIGHTS.get(regime, _REGIME_WEIGHTS["NORMAL"]).copy()
-
-        # ── 2. Collect votes and compute directional scores ──
-        long_score = 0.0
-        short_score = 0.0
-        hold_score = 0.0
-        long_voters = []
-        short_voters = []
-        hold_voters = []
-
+        # 1. Parse individual signals
+        class MockSignal:
+            def __init__(self, d):
+                from src.paper_trading.engine import SignalType
+                raw_sig = d.get("signal", "HOLD")
+                sig_val = raw_sig.value if hasattr(raw_sig, "value") else raw_sig
+                self.signal_type = SignalType(sig_val)
+                self.confidence = float(d.get("confidence", 0.0))
+                
+        current_signals = {}
         for model in models:
-            sig = signals_for_ensemble.get(model, {})
-            direction = sig.get("signal", "HOLD")
-            conf = float(sig.get("confidence", 0.0))
-            w = weights.get(model, 0.10)
-            weighted_vote = w * conf
-
-            if direction == "LONG":
-                long_score += weighted_vote
-                long_voters.append((model, conf))
-            elif direction == "SHORT":
-                short_score += weighted_vote
-                short_voters.append((model, conf))
+            if model in individual_signals:
+                current_signals[model] = MockSignal(individual_signals[model])
+                
+        # 2. Calculate dynamic weights
+        adjuster = get_weight_adjuster()
+        weights = adjuster.get_weights(regime, current_signals)
+        
+        # 3. Prepare inputs for MetaDecisionLayer
+        decision_layer = MetaDecisionLayer()
+        weighted_signals = {}
+        signal_confidences = {}
+        
+        for name, sig in current_signals.items():
+            if sig.signal_type == "LONG":
+                sig_val = 1.0
+            elif sig.signal_type == "SHORT":
+                sig_val = -1.0
             else:
-                hold_score += weighted_vote
-                hold_voters.append((model, conf))
-
-        n_long = len(long_voters)
-        n_short = len(short_voters)
-        n_hold = len(hold_voters)
-
-        # ── 3. Net directional score ──
-        net_score = long_score - short_score
-        abs_net = abs(net_score)
-
-        # Determine raw signal from net direction
-        if abs_net < 0.01:
-            # Scores are effectively equal — no clear direction
-            raw_signal = "HOLD"
-            raw_confidence = 0.0
-        elif net_score > 0:
-            raw_signal = "LONG"
-            raw_confidence = abs_net
+                sig_val = 0.0
+                
+            weighted_signals[name] = sig_val
+            signal_confidences[name] = sig.confidence
+            
+        direction_scores = [v for v in weighted_signals.values() if v != 0]
+        import numpy as np
+        signal_disagreement = np.std(direction_scores) if len(direction_scores) > 1 else 0.0
+        
+        # 4. Make Meta Decision
+        decision = decision_layer.make_meta_decision(
+            weighted_signals=weighted_signals,
+            signal_confidences=signal_confidences,
+            model_weights=weights,
+            disagreement_penalty=1.0,  # dynamic_weights already handles agreement
+            signal_disagreement=signal_disagreement,
+            regime=regime.lower(),
+            current_price=0.0,
+            atr=0.0,
+        )
+        
+        # 5. Map back to expected signal format
+        if decision.position_side.value == "long":
+            final_signal = "LONG"
+        elif decision.position_side.value == "short":
+            final_signal = "SHORT"
         else:
-            raw_signal = "SHORT"
-            raw_confidence = abs_net
-
-        # ── 4. Quorum check: need ≥2 models voting in the winning direction ──
-        winning_count = n_long if raw_signal == "LONG" else n_short
-        if raw_signal != "HOLD" and winning_count < 2:
-            raw_signal = "HOLD"
-            raw_confidence = raw_confidence * 0.3
-            quorum_note = "QuorumFail"
-        else:
-            quorum_note = ""
-
-        # ── 5. Agreement / conflict modifiers ──
-        total_directional = n_long + n_short
-        agreement_mult = 1.0
-
-        if total_directional > 0:
-            # Check if models are fighting each other
-            if n_long >= 2 and n_short >= 2:
-                # Significant conflict — penalize confidence
-                agreement_mult = 0.65
-            elif winning_count >= 3:
-                # Strong agreement — boost confidence
-                agreement_mult = 1.25
-            elif winning_count >= 4:
-                # Very strong agreement
-                agreement_mult = 1.40
-
-        # ── 6. Consensus override ──
-        # If 3+ models agree on a direction AND the ensemble disagrees, force it
-        consensus_note = ""
-        if n_long >= 3 and raw_signal != "LONG":
-            avg_long_conf = np.mean([c for _, c in long_voters])
-            if avg_long_conf > 0.40:
-                raw_signal = "LONG"
-                raw_confidence = long_score
-                agreement_mult = 1.20
-                consensus_note = f"ConsensusOverride({n_long}L)"
-        elif n_short >= 3 and raw_signal != "SHORT":
-            avg_short_conf = np.mean([c for _, c in short_voters])
-            if avg_short_conf > 0.40:
-                raw_signal = "SHORT"
-                raw_confidence = short_score
-                agreement_mult = 1.20
-                consensus_note = f"ConsensusOverride({n_short}S)"
-
-        # ── 7. Macro adjustment ──
-        macro_note = ""
-        if macro_data and raw_signal != "HOLD":
-            dxy_mom = macro_data.get("dxy_momentum", 0.0)
-            yield_mom = macro_data.get("yield_momentum", 0.0)
-
-            # Strong dollar + rising yields = bearish gold
-            macro_pressure = (dxy_mom + yield_mom) * 0.5
-
-            if abs(macro_pressure) > 0.5:
-                if macro_pressure > 0 and raw_signal == "LONG":
-                    # Macro headwind against LONG
-                    agreement_mult *= 0.85
-                    macro_note = f"MacroHeadwind(DXY={dxy_mom:.2f})"
-                elif macro_pressure < 0 and raw_signal == "SHORT":
-                    # Macro headwind against SHORT
-                    agreement_mult *= 0.85
-                    macro_note = f"MacroHeadwind(DXY={dxy_mom:.2f})"
-                elif macro_pressure > 0 and raw_signal == "SHORT":
-                    # Macro tailwind for SHORT
-                    agreement_mult *= 1.10
-                    macro_note = f"MacroTailwind(DXY={dxy_mom:.2f})"
-                elif macro_pressure < 0 and raw_signal == "LONG":
-                    # Macro tailwind for LONG
-                    agreement_mult *= 1.10
-                    macro_note = f"MacroTailwind(DXY={dxy_mom:.2f})"
-
-        # ── 8. Final confidence ──
-        final_confidence = raw_confidence * agreement_mult
-
-        # Scale to 0-1 range: the theoretical max weighted score is ~0.25 (one model at 100%)
-        # In practice with multiple models, scores range 0.05 - 0.35
-        final_confidence = min(final_confidence / 0.25, 1.0)
-        final_confidence = max(0.0, min(final_confidence, 0.95))
-
-        final_signal = raw_signal if final_confidence >= 0.10 else "HOLD"
-
-        # ── 9. Build reasoning ──
-        parts = [
-            f"Ensemble({n_long}L/{n_short}S/{n_hold}H)",
-            f"net={net_score:+.3f}",
-            f"L={long_score:.3f}/S={short_score:.3f}/H={hold_score:.3f}",
-        ]
-        for note in [quorum_note, consensus_note, macro_note]:
-            if note:
-                parts.append(note)
-
+            final_signal = "HOLD"
+            
         return {
             "signal": final_signal,
-            "confidence": round(float(final_confidence), 3),
-            "reasoning": " | ".join(parts),
+            "confidence": round(decision.ensemble_confidence, 3),
+            "reasoning": f"Ensemble: {decision.reasoning} | W: { {k: round(v,2) for k,v in weights.items()} }"
         }
-
+        
     except Exception as e:
-        logger.warning(f"Ensemble error: {e}")
-        return {"signal": "HOLD", "confidence": 0.0, "reasoning": f"Error: {str(e)[:80]}"}
-
+        logger.warning(f"Ensemble execution error: {e}")
+        import traceback
+        logger.warning(traceback.format_exc())
+        return {"signal": "HOLD", "confidence": 0.0, "reasoning": f"Ensemble Error: {e}"}
 
 
 # ============================================================================
@@ -1106,26 +901,43 @@ class LiveInferenceLoop:
         if self.engine and self.engine.status == "RUNNING":
             self.engine.update_price(current_price, datetime.now())
 
-        logger.info(f"[Inference #{self.iteration}] Gold @ ${current_price:.2f} — running 8 models (2 wavelet variants)...")
+        logger.info(f"[Inference #{self.iteration}] Gold @ ${current_price:.2f} — running models...")
 
         # 2. Run individual models (in executor to avoid blocking event loop)
         loop = asyncio.get_event_loop()
 
-        wavelet_pro_res = await loop.run_in_executor(None, run_wavelet, df)
-        wavelet_basic_res = await loop.run_in_executor(None, run_wavelet_basic, df)
+        wavelet_res = await loop.run_in_executor(None, run_wavelet, df)
         hmm_res = await loop.run_in_executor(None, run_hmm, df)
-        lstm_res = await loop.run_in_executor(None, run_lstm, df)
-        tft_res = await loop.run_in_executor(None, run_tft, df)
-        genetic_res = await loop.run_in_executor(None, run_genetic, df)
+        lstm_v1_res = await loop.run_in_executor(None, run_lstm, df)
+        lstm_v2_base_res = await loop.run_in_executor(None, run_lstm_v2_base, df)
+        lstm_v21_res = await loop.run_in_executor(None, run_lstm_v21, df)
         hmm_pro_res = await loop.run_in_executor(None, run_hmm_pro, df)
 
-        individual = {
-            "wavelet_pro": wavelet_pro_res,    # 6-level DWT + CWT + features (new)
-            "wavelet_basic": wavelet_basic_res, # 5-level DWT only (original)
+        # TFT_Pro needs regime + model outputs from HMM/Wavelet for cross-model features
+        regime_for_tft = hmm_res.get("regime", "NORMAL")
+        tft_pro_res = await loop.run_in_executor(
+            None, run_tft_pro, df, regime_for_tft, wavelet_res, hmm_res
+        )
+        lstm_v23_res = await loop.run_in_executor(None, run_lstm_v23, df, regime_for_tft)
+        tft_pro_max_res = await loop.run_in_executor(
+            None, run_tft_pro_max, df, regime_for_tft
+        )
+
+        individual_v1 = {
+            "wavelet_pro": wavelet_res,
             "hmm": hmm_res,
-            "lstm": lstm_res,
-            "tft": tft_res,
-            "genetic": genetic_res,
+            "lstm": lstm_v1_res,
+            "tft_pro": tft_pro_res,
+            "tft_pro_max": tft_pro_max_res,
+            "hmm_pro": hmm_pro_res,
+        }
+        
+        individual_v2 = {
+            "wavelet_pro": wavelet_res,
+            "hmm": hmm_res,
+            "lstm": lstm_v2_base_res,
+            "tft_pro": tft_pro_res,
+            "tft_pro_max": tft_pro_max_res,
             "hmm_pro": hmm_pro_res,
         }
 
@@ -1138,10 +950,26 @@ class LiveInferenceLoop:
             "yield_momentum": float(df["us10y_returns"].iloc[-3:].sum() * 100) if "us10y_returns" in df.columns else 0.0,
         }
         
-        # Run ensemble synchronously with dynamic regime weights
-        ensemble_res = run_ensemble(individual, regime, macro_data)
+        # Run v2.0 ensemble using lstm_v2_base
+        ensemble_res = run_ensemble(individual_v2, regime, macro_data)
+        
+        # Create specialized v2.1 ensemble that uses the gated MCDropout signal
+        individual_v21 = individual_v2.copy()
+        individual_v21["lstm"] = lstm_v21_res
+        ensemble_v21_res = run_ensemble(individual_v21, regime, macro_data)
 
-        all_results = {**individual, "ensemble": ensemble_res}
+        # Create specialized v2.3 ensemble that uses the Alpha Execution Policy
+        individual_v23 = individual_v2.copy()
+        individual_v23["lstm"] = lstm_v23_res
+        ensemble_v23_res = run_ensemble(individual_v23, regime, macro_data)
+
+        all_results = {
+            **individual_v1, 
+            "lstm": lstm_v1_res,
+            "ensemble": ensemble_res, 
+            "ensemble_v21": ensemble_v21_res,
+            "ensemble_v23": ensemble_v23_res
+        }
 
         # Check circuit breakers using the global risk manager if available
         _can_trade = True
@@ -1218,13 +1046,16 @@ class LiveInferenceLoop:
                     # The other 5 individual models just register their status for the dashboard
                     # to prevent them from constantly whipsawing the single paper trading position.
                     
-                    if model_name == "ensemble":
+                    if model_name in ("ensemble", "ensemble_v21", "ensemble_v23", "lstm"):
                         # Apply cooldown
                         if self.bars_since_last_trade < MIN_BARS_BETWEEN_TRADES and signal_val in ("LONG", "SHORT"):
                             # Demote to HOLD if in cooldown
                             signal_val = "HOLD"
                             
-                        if signal_val in ("LONG", "SHORT") and confidence >= self.engine.config.min_confidence and _trade_taken:
+                        # ONLY EXECUTE IF AUTO TRADE IS ENABLED
+                        can_execute = getattr(self.engine, "auto_trade_enabled", False)
+                            
+                        if can_execute and signal_val in ("LONG", "SHORT") and confidence >= self.engine.config.min_confidence and _trade_taken:
                             sig = ModelSignal(
                                 model_name=model_name,
                                 signal_type=SignalType(signal_val),
@@ -1255,6 +1086,8 @@ class LiveInferenceLoop:
                         regime=regime,
                     )
                     self.engine.last_signals[model_name] = sig
+                    if model_name not in self.engine.signal_history:
+                        self.engine.signal_history[model_name] = []
                     self.engine.signal_history[model_name].append(sig)
 
                 except Exception as e:
@@ -1293,6 +1126,42 @@ class LiveInferenceLoop:
                 await self.broadcast_fn("model_signals_update", broadcast_payload)
             except Exception as e:
                 logger.debug(f"Broadcast failed: {e}")
+
+        # 4.5 CSV Logging (Hourly Rotation in E:\PRO\JIMxNik\LSTMLogs)
+        try:
+            import os
+            import pytz
+            
+            log_dir = r"E:\PRO\JIMxNik\LSTMLogs"
+            os.makedirs(log_dir, exist_ok=True)
+            
+            ist = pytz.timezone("Asia/Kolkata")
+            now_ist = datetime.now(pytz.utc).astimezone(ist)
+            
+            filename = f"lstm_logs_{now_ist.strftime('%Y%m%d_%H')}.csv"
+            filepath = os.path.join(log_dir, filename)
+            
+            file_exists = os.path.exists(filepath)
+            
+            v1_sig = all_results.get("lstm", {}).get("signal", "HOLD")
+            v2_sig = all_results.get("ensemble", {}).get("signal", "HOLD")
+            v21_sig = all_results.get("ensemble_v21", {}).get("signal", "HOLD")
+            v23_sig = all_results.get("ensemble_v23", {}).get("signal", "HOLD")
+            
+            exec_str = "TRADED" if getattr(self, "bars_since_last_trade", -1) == 0 else "HOLD"
+            
+            pnl_val = 0.0
+            if self.engine and hasattr(self.engine, "engines"):
+                # Total PnL across engines
+                pnl_val = sum(e.daily_pnl for e in self.engine.engines.values())
+            
+            with open(filepath, "a", encoding="utf-8") as f:
+                if not file_exists:
+                    f.write("timestamp(ist),price,v1.0,v2.0,v2.1,v2.3,Exec,PnL\n")
+                f.write(f"{now_ist.strftime('%Y-%m-%d %H:%M:%S')},{current_price:.2f},{v1_sig},{v2_sig},{v21_sig},{v23_sig},{exec_str},{pnl_val:.2f}\n")
+                
+        except Exception as e:
+            logger.error(f"Failed to write LSTM Logs: {e}")
 
         # Log summary
         sig_summary = " | ".join(

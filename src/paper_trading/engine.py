@@ -155,13 +155,11 @@ class PaperTradingConfig:
     # for the blended aggregator confidence. Its confidence still passes through
     # process_signal() unscaled to avoid double-counting.
     signal_weights: Dict[str, float] = field(default_factory=lambda: {
-        "wavelet_pro": 0.12,   # Advanced 6-level DWT + CWT (new WaveletPro)
-        "wavelet_basic": 0.08, # Basic 5-level DWT (original, for comparison)
-        "hmm":     0.20,   # Regime detection — critical during transitions
+        "wavelet_pro": 0.20,   # Advanced 6-level DWT + CWT (new WaveletPro)
+        "hmm":     0.15,   # Regime detection — critical during transitions
         "lstm":    0.15,   # Temporal momentum proxy (EMA/MACD)
-        "tft":     0.10,   # Multi-scale RSI/BB proxy
-        "genetic": 0.10,   # Rule-based voting (SMA/momentum/breakout)
-        "hmm_pro": 0.12,   # GMMHMM regime detector (HMM Pro)
+        "tft_pro": 0.15,   # Multi-scale RSI/BB proxy (TFT Pro)
+        "hmm_pro": 0.22,   # GMMHMM regime detector (HMM Pro)
         "ensemble": 0.13,  # Meta output reserve — blended aggregator confidence
     })
     use_dynamic_weights: bool = True       # Enable regime-adaptive weighting
@@ -219,7 +217,7 @@ class PaperTradingEngine:
         # Model signals
         self.last_signals: Dict[str, ModelSignal] = {}
         self.signal_history: Dict[str, List[ModelSignal]] = {
-            model: [] for model in ["wavelet_pro", "wavelet_basic", "hmm", "lstm", "tft", "genetic", "hmm_pro", "ensemble"]
+            model: [] for model in ["wavelet_pro", "hmm", "lstm", "tft_pro", "hmm_pro", "ensemble"]
         }
         
         # Dynamic weight adjuster (real-world regime-adaptive weighting)
@@ -385,7 +383,7 @@ class PaperTradingEngine:
                 )
             elif self.config.use_dynamic_weights:
                 current_signals_map = {
-                    name: sig.signal_type.value
+                    name: sig
                     for name, sig in self.last_signals.items()
                 }
                 dynamic_weights = self.weight_adjuster.get_weights(
@@ -738,7 +736,17 @@ class PaperTradingEngine:
             
         # Apply Kelly fraction, regime multiplier, and config limit
         position_fraction = kelly_fraction * self.config.kelly_fraction * regime_multiplier
-        position_fraction = min(position_fraction, self.config.max_position_pct)
+        
+        # Apply MetaDecisionLayer regime-based sizing limits
+        max_size_by_regime = {
+            "GROWTH": 0.10,
+            "NORMAL": 0.05,
+            "CRISIS": 0.02,
+        }
+        regime_upper = str(regime).upper()
+        meta_max_size = max_size_by_regime.get(regime_upper, 0.05)
+        
+        position_fraction = min(position_fraction, self.config.max_position_pct, meta_max_size)
         position_fraction = max(position_fraction, 0.01)  # Minimum position
         
         # Convert to ounces

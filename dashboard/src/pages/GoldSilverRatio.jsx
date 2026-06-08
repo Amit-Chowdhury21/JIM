@@ -17,7 +17,7 @@ function TradingViewChart() {
           "autosize": true,
           "symbol": "TVC:GOLDSILVER",
           "interval": "D",
-          "timezone": "Etc/UTC",
+          "timezone": "Asia/Kolkata",
           "theme": "dark",
           "style": "1",
           "locale": "en",

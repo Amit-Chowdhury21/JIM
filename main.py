@@ -240,7 +240,7 @@ def run_paper_trading(cfg: dict):
     engine.start()
 
     # Generate signals from models (simulated for CLI mode)
-    model_names = ["wavelet", "hmm", "lstm", "tft", "genetic", "ensemble"]
+    model_names = ["wavelet_pro", "hmm_pro", "lstm", "tft_pro", "ensemble"]
     np.random.seed(int(time.time()) % 10000)
 
     num_simulation_steps = 10
@@ -379,20 +379,17 @@ def run_demo(cfg: dict):
 
     # Step 3: Wavelet analysis
     logger.info("[3/5] Running wavelet de-noising...")
-    from src.models.wavelet import WaveletDenoiser
-    wavelet = WaveletDenoiser(
-        wavelet=cfg.get("features", {}).get("wavelet", {}).get("family", "db4"),
-        levels=cfg.get("features", {}).get("wavelet", {}).get("levels", 5),
-    )
+    from src.models.wavelet_pro import WaveletPro
+    wavelet = WaveletPro()
     wavelet.train(gold_df)
 
     prices = gold_df["close"].values
-    denoised = wavelet.denoise(prices)
-    bands = wavelet.get_frequency_bands(prices)
+    denoised, thresholds = wavelet.denoise_soft_threshold(prices)
+    coeffs = wavelet.decompose_dwt(prices)
 
     noise_pct = np.std(prices - denoised) / np.std(prices) * 100
     logger.info(f"  Noise removed: {noise_pct:.1f}% of signal variance")
-    logger.info(f"  Frequency bands extracted: {list(bands.keys())}")
+    logger.info(f"  Frequency bands extracted: {list(coeffs.keys())}")
 
     # Step 4: Regime detection
     logger.info("[4/5] Detecting market regimes...")

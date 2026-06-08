@@ -101,6 +101,10 @@ export async function fetchGoldPrice(interval = '15m', period = '5d') {
   return apiFetch(`/gold-price?interval=${interval}&period=${period}`);
 }
 
+export async function fetchFearGreed() {
+  return apiFetch('/fear-greed');
+}
+
 export async function fetchGsRatio(period = '2y', interval = '1mo') {
   return apiFetch(`/gs-ratio?period=${period}&interval=${interval}`);
 }
@@ -149,6 +153,14 @@ export async function fetchLiveSignals() {
 
 export async function fetchInferenceStatus() {
   return apiFetch('/paper-trading/inference-status');
+}
+
+export async function enableAutoTrading() {
+  return apiPost('/paper-trading/enable-auto-trade', {});
+}
+
+export async function fetchLSTMLogs(lines = 20) {
+  return apiFetch(`/paper-trading/lstm-logs?lines=${lines}`);
 }
 
 export async function injectSignal(signalData) {

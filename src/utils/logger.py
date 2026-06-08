@@ -162,6 +162,14 @@ def setup_logger(
 
     logger.info(f"Logger initialized | level={level} | file={log_path}")
 
+    # Silence noisy standard library loggers
+    import logging
+    logging.getLogger("tvDatafeed").setLevel(logging.CRITICAL)
+    logging.getLogger("tvDatafeed.main").setLevel(logging.CRITICAL)
+    logging.getLogger("hmmlearn").setLevel(logging.CRITICAL)
+    logging.getLogger("hmmlearn.base").setLevel(logging.CRITICAL)
+    logging.getLogger("hmmlearn.hmm").setLevel(logging.CRITICAL)
+
 def get_trade_logger():
     """Get a logger specifically for trade events."""
     return logger.bind(trade=True)

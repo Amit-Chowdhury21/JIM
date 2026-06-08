@@ -279,9 +279,10 @@ class TestModelPerformanceMonitor:
     def test_detect_degradation_no_degradation(self, monitor):
         """Test when there is no degradation."""
         # Track trades with good win rate
+        today = datetime.now().strftime("%Y-%m-%d")
         for i in range(10):
             pnl = 200.0 if i % 2 == 0 else 150.0  # 50% win rate, positive average
-            monitor.track_trade("ensemble", {"pnl": pnl}, date="2026-05-14")
+            monitor.track_trade("ensemble", {"pnl": pnl}, date=today)
         
         is_degraded, reason = monitor.detect_degradation("ensemble", lookback_days=5, threshold_pct=10.0)
         
@@ -290,8 +291,9 @@ class TestModelPerformanceMonitor:
     def test_detect_degradation_large_losses(self, monitor):
         """Test degradation detection with large cumulative losses."""
         # Track trades with large losses
+        today = datetime.now().strftime("%Y-%m-%d")
         for i in range(5):
-            monitor.track_trade("lstm", {"pnl": -300.0}, date="2026-05-14")
+            monitor.track_trade("lstm", {"pnl": -300.0}, date=today)
         
         is_degraded, reason = monitor.detect_degradation("lstm", lookback_days=5, threshold_pct=10.0)
         

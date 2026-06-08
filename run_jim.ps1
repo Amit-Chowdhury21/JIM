@@ -2,8 +2,16 @@ Write-Host "=================================================="
 Write-Host "  Starting Mini-Medallion Project"
 Write-Host "=================================================="
 
+# Auto-update Gold 1m data (Binance 24/7)
+Write-Host "[1/5] Starting Continuous Gold 1m Updater..."
+Start-Process -FilePath "cmd.exe" -ArgumentList "/k", ".\.venv\Scripts\python.exe scripts/download_paxg_gold_1m.py --continuous"
+
+# Auto-update all Asset 1m data (DXY, GVZ, Silver, TNX)
+Write-Host "[2/5] Starting Continuous Live Data Manager..."
+Start-Process -FilePath "cmd.exe" -ArgumentList "/k", ".\.venv\Scripts\python.exe scripts/asset_1m_data_manager.py"
+
 # Run Data Ingestion & Feature Engineering Pipeline
-Write-Host "[1/3] Running Data Ingestion & Feature Pipeline..."
+Write-Host "[3/5] Running Data Ingestion & Feature Pipeline..."
 & ".\.venv\Scripts\python.exe" "scripts/run_pipeline.py" "--mode" "full"
 if ($LASTEXITCODE -ne 0) {
     Write-Host ""
@@ -12,14 +20,14 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Start Backend API
-Write-Host "[2/3] Starting Backend API..."
+Write-Host "[4/5] Starting Backend API..."
 Start-Process -FilePath "cmd.exe" -ArgumentList "/k", ".\.venv\Scripts\python.exe main.py --mode api"
 
 # Wait a moment
 Start-Sleep -Seconds 3
 
 # Start Frontend Dashboard
-Write-Host "[3/3] Starting Frontend Dashboard..."
+Write-Host "[5/5] Starting Frontend Dashboard..."
 Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "cd dashboard && npm run dev"
 
 Write-Host ""

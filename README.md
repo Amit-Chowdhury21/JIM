@@ -71,19 +71,18 @@ python main.py --mode demo
 
 ---
 
-## 🗺️ Project Roadmap (7 Phases)
+Because this is an aggressive high-frequency scalping engine running on 1-minute (1m) data, the system doesn't use fixed time limits. Instead, it dynamically calculates the exit time based on market volatility.
 
-The project follows a strict 7-phase roadmap, ensuring robust infrastructure before live capital deployment.
+However, based on the backend architecture and mathematical parameters, the average trade duration is typically between 3 to 15 minutes.
 
-- [x] **Phase 1:** Infrastructure & Compute 
-- [ ] **Phase 2:** Data Acquisition & Pipeline
-- [ ] **Phase 3:** Mathematical Modeling
-- [ ] **Phase 4:** Risk Management & Meta-Labeling
-- [ ] **Phase 5:** Backtesting & Validation (CPCV & Deflated Sharpe Ratio)
-- [ ] **Phase 6:** Paper Trading & Live Deployment (Staged from Alpha to Production)
-- [ ] **Phase 7:** Team Culture & Operations (No Silos, Shared Destiny)
+Here is exactly how the system decides when to exit:
 
-*(Currently, Phase 1 is in progress with WaveletPro and HMM Pro fully integrated and verified).*
+Prediction Horizons: The TFT_Pro AI model is explicitly trained to forecast exactly 3 minutes, 12 minutes, and 24 minutes into the future (h3, h12, h24). It doesn't care about anything beyond 24 minutes.
+Minimum Holding Period: The Reinforcement Learning Execution Agent (rl_execution_agent.py) calculates a min_holding_bars constraint. Depending on how confident the ensemble is, it forces the system to hold the trade for a strict minimum of 1 to 5 minutes to prevent getting chopped up by immediate fake-outs.
+Trailing Stop Phases: After the minimum hold time, the exit is entirely dictated by a dynamic trailing stop.
+If the trade goes into profit by >0.5x ATR, it moves the stop to breakeven.
+If it goes into profit by >1.0x ATR, it trails the price aggressively to lock in profits.
+As soon as the live price hits that dynamic trailing line, the engine closes the trade instantly. In highly volatile regimes (CRISIS), trades might last just 1-2 minutes. In trending regimes (GROWTH), they might ride the trailing stop for 15-20 minutes.
 
 ---
 
@@ -91,6 +90,23 @@ The project follows a strict 7-phase roadmap, ensuring robust infrastructure bef
 All extensive project documentation has been consolidated and can be explored via the [Graphify Report](./graphify-out/GRAPH_REPORT.md). The `GRAPH_REPORT.md` file contains a detailed topology of the codebase and includes a full system architecture and technical consolidation summary at the end of the file. 
 
 ---
+You should stop thinking in terms of single models and start building a multi-layer research, portfolio, execution, and risk machine. Renaissance-style trading was not one HMM or one Wavelet model; it was a data-first, ensemble, market-neutral, continuously validated system that exploited many small edges with strict execution and risk discipline.
+
+What changes next
+Your HMM and Wavelet modules are only the signal-discovery layer, not the full strategy. Renaissance’s playbook emphasized repeatable small edges, broad data coverage, market-neutral or risk-balanced positioning, automation, ongoing validation, and infrastructure strong enough to execute without emotion or downtime.
+
+So the next step is to turn your gold system into a stack of cooperating layers:
+| Layer           | What you already have                | What you need next                                                                      |
+| --------------- | ------------------------------------ | --------------------------------------------------------------------------------------- |
+| Signal research | HMM, Wavelet                         | Add orthogonal alpha families, meta-labeling, ensemble weighting journals.stmjournals+1 |
+| Data engine     | Likely price-focused                 | Add macro, microstructure, cross-asset, event, and regime data journals.stmjournals+2   |
+| Portfolio logic | Likely single-instrument directional | Add spread, hedge, regime-conditioned sizing, neutralization journals.stmjournals+1     |
+| Execution       | Probably broker order logic          | Add slippage model, order slicing, queue logic, kill switches journals.stmjournals+1    |
+| Risk            | Basic stop-loss likely               | Add portfolio risk, exposure caps, model decay monitoring journals.stmjournals+1        |
+| Ops             | Local/live runtime                   | Add production monitoring, failover, rollback, audit trail github                       |
+
+
+
 
 ## ⚠️ Disclaimer
 **For Research Purposes Only.** This software is provided as-is, and the creators are not responsible for any financial losses incurred from using this trading engine. Always backtest strategies thoroughly and use paper trading before committing live capital.

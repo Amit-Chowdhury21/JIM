@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { Play, Pause, Square, DollarSign, TrendingUp, Activity, Target, ArrowUpRight, ArrowDownRight, Minus, Wifi, WifiOff, RefreshCw, Zap } from 'lucide-react';
-import { startPaperTrading, stopPaperTrading, fetchPaperTradingStatus, fetchPaperTradingPerformance, fetchPaperTradingTrades, fetchLiveSignals, fetchRiskReport, resetDailyCounters, fetchModelWeights } from '../data/api';
+import { startPaperTrading, stopPaperTrading, fetchPaperTradingStatus, fetchPaperTradingPerformance, fetchPaperTradingTrades, fetchLiveSignals, fetchRiskReport, resetDailyCounters, fetchModelWeights, enableAutoTrading, fetchLSTMLogs } from '../data/api';
 
 
 const signalColor = (s) => s === 'LONG' ? 'var(--green)' : s === 'SHORT' ? 'var(--red)' : 'var(--text-muted)';
@@ -18,22 +18,30 @@ export default function PaperTrading() {
   const [live, setLive] = useState(false);
   const [status, setStatus] = useState(null);
   const [perf, setPerf] = useState(null);
-  const [trades, setTrades] = useState([]);
+  const [trades, setTrades] = useState(null);
   const [signals, setSignals] = useState(null);
   const [risk, setRisk] = useState(null);
   const [eqHistory, setEqHistory] = useState([]);
   const [starting, setStarting] = useState(false);
   const [config, setConfig] = useState({ initial_capital:100000, kelly_fraction:0.25, max_position_pct:0.10, max_daily_loss_pct:0.02, max_drawdown_pct:0.15, min_confidence:0.60 });
   const [weights, setWeights] = useState(null);
-
+  const [lstmLogs, setLstmLogs] = useState([]);
+  const [autoTrading, setAutoTrading] = useState(false);
   const refreshRef = useRef(null);
   refreshRef.current = async () => {
     try {
       const s = await fetchPaperTradingStatus();
       setStatus(s); setLive(true);
-      if (s?.portfolio?.total_value) {
+      if (s?.engines && s.engines['v2.1']?.portfolio?.total_value) {
         setEqHistory(prev => {
-          const n = [...prev, { date: new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}), equity: s.portfolio.total_value }];
+          const newEntry = { 
+            date: new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}), 
+            v1: s.engines['v1.0']?.portfolio?.total_value || 100000,
+            v2: s.engines['v2.0']?.portfolio?.total_value || 100000,
+            v21: s.engines['v2.1']?.portfolio?.total_value || 100000,
+            v23: s.engines['v2.3']?.portfolio?.total_value || 100000
+          };
+          const n = [...prev, newEntry];
           return n.length > 300 ? n.slice(-300) : n;
         });
       }
@@ -43,6 +51,10 @@ export default function PaperTrading() {
     try { setSignals(await fetchLiveSignals()); } catch { /* offline */ }
     try { setRisk(await fetchRiskReport()); } catch { /* offline */ }
     try { setWeights(await fetchModelWeights()); } catch { /* offline */ }
+    try { 
+      const logsResp = await fetchLSTMLogs(15); 
+      setLstmLogs(logsResp?.logs || []); 
+    } catch { /* offline */ }
   };
 
   useEffect(() => { refreshRef.current?.(); const t = setInterval(() => refreshRef.current?.(), 5000); return () => clearInterval(t); }, []);
@@ -54,41 +66,28 @@ export default function PaperTrading() {
   };
   const handleStop = async () => { if(!confirm('Stop engine?')) return; try { await stopPaperTrading(); refreshRef.current?.(); } catch(e) { alert(e.message); } };
   const handleReset = async () => { try { await resetDailyCounters(); refreshRef.current?.(); } catch(e) { alert(e.message); } };
-
+  const handleAutoTrade = async () => { 
+    if(!confirm('WARNING: This will allow LSTM models to execute real paper trades automatically. Proceed?')) return;
+    try { await enableAutoTrading(); setAutoTrading(true); } catch(e) { alert(e.message); }
+  };
 
   const engineStatus = status?.status || 'NOT STARTED';
   const isRunning = engineStatus === 'RUNNING';
-  const pf = status?.portfolio || {};
-  const totalValue = pf.total_value ?? 100000;
-  const pnlTotal = pf.pnl_total ?? 0;
-  const dailyPnl = pf.pnl_daily ?? 0;
-  const returnPct = pf.return_pct ?? 0;
-  const winRate = perf?.win_rate ?? 0;
-  const sharpe = perf?.sharpe_ratio ?? 0;
-  const maxDD = perf?.max_drawdown ?? 0;
-  const numTrades = perf?.num_trades ?? pf.num_trades ?? 0;
-
-  const modelSigs = signals?.models || {};
+  
+  const engines = ['v1.0', 'v2.0', 'v2.1', 'v2.3'];
   const equityData = eqHistory.length > 3 ? eqHistory : [];
-  const dailyPnlData = [];
-  const tradeList = Array.isArray(trades) && trades.length > 0 ? trades : [];
-
 
   return (<>
     <div className="page-header">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start', flexWrap:'wrap', gap:16}}>
         <div>
-          <h2>📄 Paper Trading Engine</h2>
-          <p>Phase 6B — Live simulated trading with 6-model signal generation, Kelly sizing & circuit breakers</p>
+          <h2>📄 Paper Trading Engine (Multi-Model)</h2>
+          <p>Live side-by-side comparison of v1.0, v2.0, v2.1, and v2.3 Execution Engines</p>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:10, flexWrap:'wrap'}}>
           <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 12px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:600,
             background:'var(--gold-dim)',color:'var(--gold)', border:'1px solid rgba(240,185,11,0.3)'}}>
             DXY: {signals?.macro?.dxy?.toFixed(2) || '---'} | US10Y: {signals?.macro?.us10y?.toFixed(2) || '---'}% | GSR: {signals?.macro?.gold_silver_ratio?.toFixed(1) || '---'}
-          </div>
-          <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 12px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:600,
-            background:'var(--blue-dim)',color:'var(--blue)', border:'1px solid rgba(59,130,246,0.3)'}}>
-            <Activity size={12}/> REGIME: {modelSigs['hmm']?.regime || 'NORMAL'}
           </div>
           <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 12px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:600,
             background:live?'var(--green-dim)':'var(--red-dim)',color:live?'var(--green)':'var(--red)',
@@ -107,15 +106,12 @@ export default function PaperTrading() {
       {/* Engine Controls */}
       <div className="card animate-in" style={{marginBottom:16}}>
           <div className="card-header">
-            <span className="card-title">Engine Controls</span>
-            <div style={{display: 'flex', gap: 8}}>
-                {signals?.macro?.rl_kelly && <span className="card-badge badge-green" style={{background:'rgba(0,196,140,0.1)', color:'var(--green)'}}>RL AGENT ACTIVE</span>}
-                <span className="card-badge badge-gold">LIVE API</span>
-            </div>
+            <span className="card-title">Orchestrator Controls</span>
+            <span className="card-badge badge-gold">LIVE API</span>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10,marginBottom:12}}>
-            {[['Capital ($)',config.initial_capital,'initial_capital'],['Kelly Frac',config.kelly_fraction,'kelly_fraction'],['Max Pos %',config.max_position_pct,'max_position_pct'],
-              ['Max Daily Loss %',config.max_daily_loss_pct,'max_daily_loss_pct'],['Max DD %',config.max_drawdown_pct,'max_drawdown_pct'],['Min Confidence',config.min_confidence,'min_confidence']
+            {[['Capital ($)',config.initial_capital,'initial_capital'],['Kelly Frac (v2+)',config.kelly_fraction,'kelly_fraction'],['Max Pos % (v2+)',config.max_position_pct,'max_position_pct'],
+              ['Max Daily Loss %',config.max_daily_loss_pct,'max_daily_loss_pct'],['Max DD %',config.max_drawdown_pct,'max_drawdown_pct']
             ].map(([label,val,key])=>(
               <div key={key}>
                 <div style={{fontSize:10,color:'var(--text-muted)',marginBottom:4}}>{label}</div>
@@ -126,171 +122,142 @@ export default function PaperTrading() {
           </div>
           <div style={{display:'flex',gap:10, marginBottom: 16}}>
             <button onClick={handleStart} disabled={starting||isRunning} style={{padding:'8px 20px',borderRadius:6,border:'none',background:isRunning?'var(--bg-input)':'var(--green)',color:isRunning?'var(--text-muted)':'#000',fontWeight:600,cursor:isRunning?'not-allowed':'pointer',fontSize:12}}>
-              <Play size={12} style={{marginRight:4,verticalAlign:'middle'}}/> {starting?'Starting...':'Start Engine'}
+              <Play size={12} style={{marginRight:4,verticalAlign:'middle'}}/> {starting?'Starting...':'Start All Engines'}
             </button>
             <button onClick={handleStop} disabled={!isRunning} style={{padding:'8px 20px',borderRadius:6,border:'none',background:isRunning?'var(--red)':'var(--bg-input)',color:isRunning?'#fff':'var(--text-muted)',fontWeight:600,cursor:isRunning?'pointer':'not-allowed',fontSize:12}}>
-              <Square size={12} style={{marginRight:4,verticalAlign:'middle'}}/> Stop
+              <Square size={12} style={{marginRight:4,verticalAlign:'middle'}}/> Stop All
             </button>
             <button onClick={handleReset} disabled={!isRunning} style={{padding:'8px 20px',borderRadius:6,border:'1px solid var(--border-color)',background:'var(--bg-secondary)',color:'var(--text-secondary)',fontWeight:600,cursor:isRunning?'pointer':'not-allowed',fontSize:12}}>
               <RefreshCw size={12} style={{marginRight:4,verticalAlign:'middle'}}/> Reset Daily
             </button>
+            <button onClick={handleAutoTrade} disabled={!isRunning || autoTrading} style={{padding:'8px 20px',borderRadius:6,border:'1px solid var(--border-color)',background:autoTrading?'var(--green-dim)':'var(--bg-secondary)',color:autoTrading?'var(--green)':'var(--text-bright)',fontWeight:600,cursor:(!isRunning || autoTrading)?'not-allowed':'pointer',fontSize:12}}>
+              <Zap size={12} style={{marginRight:4,verticalAlign:'middle'}}/> {autoTrading ? 'Auto Trade: ON' : 'Trade all lstm'}
+            </button>
           </div>
-          <div style={{padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 8, border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, flexWrap:'wrap', gap:8}}>
-              <div><strong style={{color:'var(--gold)'}}>Phase 7 Active Modules:</strong></div>
-              <div style={{display: 'flex', gap: 20, flexWrap:'wrap'}}>
-                <div style={{color: 'var(--text-bright)'}}><span style={{color:'var(--green)'}}>RL Kelly Scale:</span> {(signals?.macro?.rl_kelly || 1.0).toFixed(2)}x</div>
-                <div style={{color: 'var(--text-bright)'}}><span style={{color:'var(--red)'}}>RL Trailing Stop:</span> {((signals?.macro?.rl_trailing || 0.015)*100).toFixed(2)}%</div>
-                <div style={{color: 'var(--text-bright)'}}><span style={{color:'var(--blue)'}}>FinBERT NLP:</span> {modelSigs['nlp']?.signal || 'WAITING'}</div>
-                <div style={{color: 'var(--text-bright)'}}><Zap size={12} style={{verticalAlign:'middle',marginRight:2,color:'var(--gold)'}}/><span style={{color:'var(--gold)'}}>Dynamic Weights:</span> {weights?.adaptation_active ? 'ADAPTIVE' : 'BASE'}</div>
+        </div>
+
+      {/* 4-Column Layout for Models */}
+      <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap: 16, marginBottom:20}}>
+        {engines.map((eng) => {
+          const st = status?.engines?.[eng] || {};
+          const p = perf?.[eng] || {};
+          const pf = st.portfolio || {};
+          const totalValue = pf.total_value ?? 100000;
+          const pnlTotal = pf.pnl_total ?? 0;
+          const returnPct = pf.return_pct ?? 0;
+          const winRate = p.win_rate ?? 0;
+          const numTrades = p.num_trades ?? pf.num_trades ?? 0;
+          const engTrades = trades?.[eng] || [];
+
+          let color = eng === 'v1.0' ? 'var(--blue)' : eng === 'v2.0' ? 'var(--gold-primary)' : eng === 'v2.1' ? 'var(--green)' : 'var(--purple)';
+          let dataKey = eng === 'v1.0' ? 'v1' : eng === 'v2.0' ? 'v2' : eng === 'v2.1' ? 'v21' : 'v23';
+
+          return (
+            <div key={eng} style={{display:'flex', flexDirection:'column', gap:16}}>
+              
+              {/* Header */}
+              <div style={{background: 'var(--bg-secondary)', border: `1px solid ${color}`, borderRadius: 8, padding: 12, textAlign:'center'}}>
+                <h3 style={{margin:0, color}}>{eng}</h3>
+                <div style={{fontSize: 12, color: 'var(--text-muted)'}}>
+                    {eng === 'v1.0' ? 'Raw LSTM' : eng === 'v2.0' ? 'CNN-LSTM Ensemble' : eng === 'v2.1' ? 'Execution Engine' : 'Alpha Engine'}
+                </div>
               </div>
-          </div>
-        </div>
 
-      {/* KPIs */}
-      <div className="kpi-grid" style={{gridTemplateColumns:'repeat(5,1fr)'}}>
-        {[
-          {label:'Portfolio Value',value:`$${totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}`,change:`${returnPct>=0?'+':''}${returnPct.toFixed(2)}%`,positive:returnPct>=0,icon:<DollarSign size={16}/>},
-          {label:'Total P&L',value:`${pnlTotal>=0?'+':''}$${Math.abs(pnlTotal).toLocaleString(undefined,{maximumFractionDigits:2})}`,change:`$${dailyPnl.toFixed(2)} today`,positive:pnlTotal>=0,icon:<TrendingUp size={16}/>},
-          {label:'Win Rate',value:`${(winRate*100).toFixed(1)}%`,change:`${numTrades} trades`,positive:winRate>0.5,icon:<Target size={16}/>},
-          {label:'Sharpe Ratio',value:sharpe.toFixed(2),change:'Annualized',positive:sharpe>1.5,icon:<Activity size={16}/>},
-          {label:'Max Drawdown',value:`${maxDD.toFixed(2)}%`,change:'Peak-to-trough',positive:Math.abs(maxDD)<5,icon:<ArrowDownRight size={16}/>},
-        ].map((kpi,i)=>(<div key={i} className="kpi-card animate-in">
-          <div className="kpi-label"><span style={{width:28,height:28,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',background:'var(--gold-glow)',color:'var(--gold-primary)'}}>{kpi.icon}</span> {kpi.label}</div>
-          <div className="kpi-value">{kpi.value}</div>
-          <div className={`kpi-change ${kpi.positive?'positive':'negative'}`}>{kpi.change}</div>
-        </div>))}
-      </div>
+              {/* KPIs */}
+              <div className="card animate-in" style={{padding: 12}}>
+                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
+                  <div className="kpi-card" style={{margin:0, padding: 10}}>
+                    <div className="kpi-label">P&L</div>
+                    <div className="kpi-value" style={{fontSize: 20}}>${Math.abs(pnlTotal).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                    <div className={`kpi-change ${pnlTotal>=0?'positive':'negative'}`}>{pnlTotal>=0?'+':'-'}{Math.abs(returnPct).toFixed(2)}%</div>
+                  </div>
+                  <div className="kpi-card" style={{margin:0, padding: 10}}>
+                    <div className="kpi-label">Win Rate</div>
+                    <div className="kpi-value" style={{fontSize: 20}}>{(winRate*100).toFixed(1)}%</div>
+                    <div className="kpi-change positive">{numTrades} trades</div>
+                  </div>
+                </div>
+              </div>
 
-      {/* Equity + Daily PnL */}
-      <div className="grid-2" style={{marginBottom:20}}>
-        <div className="card animate-in">
-          <div className="card-header"><span className="card-title">Equity Curve</span><span className={`card-badge ${live?'badge-green':'badge-orange'}`}>{live?'LIVE':'WAITING'}</span></div>
-          <ResponsiveContainer width="100%" height={240}>
-            <AreaChart data={equityData}>
-              <defs><linearGradient id="eqG2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f0b90b" stopOpacity={0.3}/><stop offset="100%" stopColor="#f0b90b" stopOpacity={0}/></linearGradient></defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
-              <XAxis dataKey="date" tick={{fill:'#6b7280',fontSize:10}} tickFormatter={v=>typeof v==='string'&&v.length>5?v.slice(5):v}/>
-              <YAxis tick={{fill:'#6b7280',fontSize:10}} tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} domain={['dataMin-500','dataMax+500']}/>
-              <Tooltip content={<CTooltip/>}/><Area type="monotone" dataKey="equity" stroke="#f0b90b" fill="url(#eqG2)" strokeWidth={2} name="Equity"/>
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="card animate-in">
-          <div className="card-header"><span className="card-title">Daily P&L</span><span className="card-badge badge-blue">HISTORY</span></div>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={dailyPnlData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
-              <XAxis dataKey="date" tick={{fill:'#6b7280',fontSize:10}} tickFormatter={v=>v.slice(5)}/>
-              <YAxis tick={{fill:'#6b7280',fontSize:10}} tickFormatter={v=>`$${v}`}/>
-              <Tooltip content={<CTooltip/>}/>
-              <Bar dataKey="pnl" radius={[4,4,0,0]} name="P&L">{dailyPnlData.map((d,i)=>(<Cell key={i} fill={d.pnl>=0?'#00c48c':'#ff4d6a'}/>))}</Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+              {/* Equity Curve */}
+              <div className="card animate-in" style={{padding: 12}}>
+                  <div className="card-header" style={{padding:0, marginBottom:10}}><span className="card-title" style={{fontSize: 14}}>Equity</span></div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={equityData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
+                      <XAxis dataKey="date" tick={{fill:'#6b7280',fontSize:10}} tickFormatter={v=>typeof v==='string'&&v.length>5?v.slice(5):v}/>
+                      <YAxis tick={{fill:'#6b7280',fontSize:10}} tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} domain={['dataMin-500','dataMax+500']} width={40}/>
+                      <Tooltip content={<CTooltip/>}/>
+                      <Area type="monotone" dataKey={dataKey} stroke={color} fill="transparent" strokeWidth={2} name="Equity" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+              </div>
 
-      {/* Model Signals + Trade History */}
-      <div className="grid-2" style={{marginBottom:20}}>
-        <div className="card animate-in">
-          <div className="card-header"><span className="card-title">Model Signal Status</span>
-            <div style={{display:'flex',gap:8}}>
-              <span className="card-badge badge-gold">7 MODELS</span>
-              {weights && <span className={`card-badge ${weights.adaptation_active?'badge-green':'badge-orange'}`} style={{fontSize:10}}>
-                <Zap size={10} style={{marginRight:3}}/>{weights.adaptation_active?'ADAPTIVE WEIGHTS':'BASE WEIGHTS'}
-              </span>}
+              {/* Trade History */}
+              <div className="card animate-in" style={{flex: 1, padding: 12}}>
+                <div className="card-header" style={{padding:0, marginBottom:10}}><span className="card-title" style={{fontSize: 14}}>Trades</span></div>
+                {engTrades.length === 0 ? (
+                  <div className="empty-state" style={{minHeight:150}}>No trades</div>
+                ) : (
+                  <div className="table-responsive">
+                    <table className="table">
+                      <thead><tr><th>Signal</th><th>Entry</th><th>P&L</th></tr></thead>
+                      <tbody>
+                        {engTrades.slice(0, 10).map(t => (
+                          <tr key={t.trade_id}>
+                            <td><span className="signal-badge" style={{background:signalBg(t.signal_type),color:signalColor(t.signal_type)}}>{signalIcon(t.signal_type)}</span></td>
+                            <td>${t.entry_price.toFixed(1)}</td>
+                            <td style={{color:t.pnl>=0?'var(--green)':'var(--red)'}}>{t.pnl>=0?'+':''}${t.pnl.toFixed(1)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
             </div>
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))',gap:10}}>
-            {Object.entries(modelSigs).map(([model,sig])=>{
-              const s = sig.signal || sig.lastSignal || 'HOLD';
-              const c = sig.confidence ?? 0;
-              const w = weights?.weights?.[model];
-              return (<div key={model} style={{padding:14,borderRadius:'var(--radius-sm)',background:'var(--bg-secondary)',border:'1px solid var(--border-color)'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                  <span style={{fontSize:13,fontWeight:600,color:'var(--text-bright)',textTransform:'capitalize'}}>{model}</span>
-                  <span style={{fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:12,background:signalBg(s),color:signalColor(s),display:'flex',alignItems:'center',gap:4}}>
-                    {signalIcon(s)} {s}
-                  </span>
-                </div>
-                <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'var(--text-muted)'}}>
-                  <span>Conf: <span style={{color:c>=0.7?'var(--green)':c>=0.6?'var(--orange)':'var(--red)',fontWeight:600,fontFamily:'var(--font-mono)'}}>{(c*100).toFixed(0)}%</span></span>
-                  {w != null && <span>Weight: <span style={{color:'var(--gold)',fontWeight:600,fontFamily:'var(--font-mono)'}}>{(w*100).toFixed(0)}%</span></span>}
-                  <span>{sig.signalCount||sig.regime||'—'}</span>
-                </div>
-                <div style={{marginTop:6}}><div className="progress-bar"><div className="progress-fill" style={{width:`${c*100}%`,background:c>=0.7?'var(--green)':c>=0.6?'var(--orange)':'var(--red)'}}/></div></div>
-                {sig.reasoning && <div style={{fontSize:9,color:'var(--text-muted)',marginTop:4,fontStyle:'italic'}}>{sig.reasoning.slice(0,80)}</div>}
-              </div>);
-            })}
-          </div>
+          )
+        })}
+      </div>
+
+      {/* LSTM LOGS SECTION */}
+      <div className="card animate-in" style={{padding: 16}}>
+        <div className="card-header" style={{padding:0, marginBottom:10}}>
+          <span className="card-title">LSTM LOGS</span>
+          <span className="card-badge badge-blue">CSV Output (IST)</span>
         </div>
-        <div className="card animate-in">
-          <div className="card-header"><span className="card-title">Recent Trades</span><span className="card-badge badge-purple">{tradeList.length} TRADES</span></div>
-          <div className="table-responsive">
-            <table className="data-table"><thead><tr><th>ID</th><th>Model</th><th>Signal</th><th>Entry</th><th>Exit</th><th>HWM</th><th>Trail Stop</th><th>P&L</th><th>Status</th></tr></thead>
-              <tbody>{tradeList.map((t,i)=>{
-                const id = t.trade_id||t.tradeId||`#${i}`;
-                const model = t.model_name||t.model||'—';
-                const sig = t.signal_type||t.signal||'—';
-                const entry = t.entry_price||t.entry||0;
-                const exit = t.exit_price||t.exit||null;
-                const hwm = t.high_water_mark||null;
-                const trail = t.trailing_stop||null;
-                const pnl = t.pnl||0;
-                const st = t.status||'OPEN';
-                return (<tr key={i}>
-                  <td className="mono">{typeof id==='string'?id.slice(0,8):id}</td>
-                  <td style={{fontWeight:600}}>{model}</td>
-                  <td><span style={{color:signalColor(sig),fontWeight:600,fontSize:11}}>{sig}</span></td>
-                  <td className="mono">${Number(entry).toFixed(2)}</td>
-                  <td className="mono">{exit?`$${Number(exit).toFixed(2)}`:'—'}</td>
-                  <td className="mono">{hwm?`$${Number(hwm).toFixed(2)}`:'—'}</td>
-                  <td className="mono" style={{color:'var(--orange)'}}>{trail?`$${Number(trail).toFixed(2)}`:'—'}</td>
-                  <td className="mono" style={{color:pnl>=0?'var(--green)':'var(--red)',fontWeight:600}}>{pnl>=0?'+':''}${Number(pnl).toFixed(2)}</td>
-                  <td><span className={`card-badge ${st==='CLOSED'?'badge-green':'badge-blue'}`}>{st}</span></td>
-                </tr>);
-              })}</tbody>
-            </table>
-          </div>
+        <div style={{
+          background: '#0a0a0a', 
+          border: '1px solid #333', 
+          borderRadius: 6, 
+          padding: 12, 
+          height: 250, 
+          overflowY: 'auto',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 12,
+          color: 'var(--green)',
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          {lstmLogs.length === 0 ? (
+            <div style={{color: '#666'}}>Waiting for logs...</div>
+          ) : (
+            lstmLogs.map((line, idx) => (
+              <div key={idx} style={{
+                padding: '4px 0', 
+                borderBottom: idx === 0 ? '1px solid #333' : 'none',
+                color: idx === 0 ? '#888' : 'var(--green)',
+                fontWeight: idx === 0 ? 'bold' : 'normal',
+                whiteSpace: 'pre-wrap'
+              }}>
+                {line}
+              </div>
+            ))
+          )}
         </div>
       </div>
 
-      {/* Risk Report (live) */}
-      {risk?.risk_report && (
-        <div className="card animate-in" style={{marginBottom:20}}>
-          <div className="card-header"><span className="card-title">Live Risk Report</span><span className="card-badge badge-red">REAL-TIME</span></div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:16}}>
-            {[
-              {label:'Current Equity',value:`$${risk.risk_report.current_equity?.toLocaleString(undefined,{maximumFractionDigits:0})}`},
-              {label:'Peak Equity',value:`$${risk.risk_report.peak_equity?.toLocaleString(undefined,{maximumFractionDigits:0})}`},
-              {label:'Drawdown',value:`${risk.risk_report.drawdown_pct?.toFixed(2)}%`},
-              {label:'Daily P&L',value:`$${risk.risk_report.daily_pnl?.toFixed(2)}`},
-              {label:'Consecutive Losses',value:risk.risk_report.consecutive_losses},
-              {label:'Violations',value:risk.risk_report.violations?.length?risk.risk_report.violations.join(', '):'None ✓'},
-            ].map((r,i)=>(<div key={i} style={{padding:'10px 14px',borderRadius:'var(--radius-sm)',background:'var(--bg-secondary)',border:'1px solid var(--border-color)'}}>
-              <div style={{fontSize:10,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:0.5}}>{r.label}</div>
-              <div style={{fontSize:15,fontWeight:600,fontFamily:'var(--font-mono)',color:'var(--text-bright)',marginTop:4}}>{r.value}</div>
-            </div>))}
-          </div>
-        </div>
-      )}
-
-      {/* Config Summary */}
-      <div className="card animate-in">
-        <div className="card-header"><span className="card-title">Paper Trading Configuration</span><span className="card-badge badge-gold">XAUUSD</span></div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:16}}>
-          {[
-            {label:'Initial Capital',value:`$${config.initial_capital.toLocaleString()}`},
-            {label:'Kelly Fraction',value:config.kelly_fraction.toFixed(2)},
-            {label:'Max Position %',value:`${(config.max_position_pct*100).toFixed(0)}%`},
-            {label:'Max Daily Loss',value:`${(config.max_daily_loss_pct*100).toFixed(1)}%`},
-            {label:'Max Drawdown',value:`${(config.max_drawdown_pct*100).toFixed(0)}%`},
-            {label:'Min Confidence',value:`${(config.min_confidence*100).toFixed(0)}%`},
-          ].map((c,i)=>(<div key={i} style={{padding:'10px 14px',borderRadius:'var(--radius-sm)',background:'var(--bg-secondary)',border:'1px solid var(--border-color)'}}>
-            <div style={{fontSize:10,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:0.5}}>{c.label}</div>
-            <div style={{fontSize:15,fontWeight:600,fontFamily:'var(--font-mono)',color:'var(--text-bright)',marginTop:4}}>{c.value}</div>
-          </div>))}
-        </div>
-      </div>
     </div>
   </>);
 }

@@ -60,12 +60,12 @@ class TestQuestDBConnectivity:
 
     def test_insert_and_retrieve(self):
         """Test data insertion and retrieval."""
-        self.cursor.execute("DELETE FROM test_ticks")  # Clean slate
+        self.cursor.execute("TRUNCATE TABLE test_ticks")  # Clean slate
         self.conn.commit()
 
         # Insert sample data
         self.cursor.execute("""
-            INSERT INTO test_ticks VALUES (
+            INSERT INTO test_ticks(timestamp, price, volume) VALUES (
                 systimestamp(),
                 2000.50,
                 100.0

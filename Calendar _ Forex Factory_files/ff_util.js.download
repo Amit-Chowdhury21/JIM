@@ -1,0 +1,306 @@
+/**
+ * Standard anchor offset
+ *
+ * This value is used primarily to anchor to flex boxes and provide a "standard" gap between the header and the flex
+ * box.
+ *
+ * @returns {number}
+ */
+FF.getAnchorOffset = function()
+{
+	if (isNaN(FF.anchorOffset))
+	{
+		FF.setAnchorOffset();
+	}
+
+	return FF.anchorOffset;
+};
+
+/**
+ * Header offset used to anchor something immediately under the header
+ *
+ * @returns {number}
+ */
+FF.getHeaderOffset = function()
+{
+	if (isNaN(FF.headerOffset))
+	{
+		FF.setHeaderOffset();
+	}
+
+	return FF.headerOffset;
+};
+
+/**
+ * Set anchor offset
+ */
+FF.setAnchorOffset = function ()
+{
+	const device = FF.getDevice();
+
+	const value = window.getComputedStyle(document.documentElement)
+		.getPropertyValue(`--${device.code}-anchor-offset`);
+
+	if (value)
+	{
+		FF.anchorOffset = parseInt(value, 10);
+	}
+}
+
+/**
+ * Set header offset
+ */
+FF.setHeaderOffset = function ()
+{
+	const device = FF.getDevice();
+
+	const value = window.getComputedStyle(document.documentElement)
+		.getPropertyValue(`--${device.code}-header-offset`);
+
+	if (value)
+	{
+		FF.headerOffset = parseInt(value, 10);
+	}
+}
+
+/**
+ * Format bytes
+ *
+ * @URL https://stackoverflow.com/a/18650828
+ * @param {number} bytes
+ * @param {number} decimals
+ * @return {string}
+ */
+FF.formatBytes = function(bytes, decimals)
+{
+	if (bytes === 0) return '0 Bytes';
+
+	const k = 1024,
+		 dm = decimals < 0 ? 0 : decimals,
+		sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'],
+		i = Math.floor(Math.log(bytes) / Math.log(k));
+
+	return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+/**
+ * @returns {{code: string, name: string}}
+ */
+FF.getDevice = function ()
+{
+	if (!FF.device.code || !FF.device.name)
+	{
+		FF.setDevice();
+	}
+
+	return FF.device;
+};
+
+FF.setDevice = function ()
+{
+	/**
+	 * @type {HTMLDivElement}
+	 */
+	const device = document.querySelector('.device');
+
+	/**
+	 * @type {HTMLDivElement[]}
+	 */
+	const devices = device ? Array.from(device.querySelectorAll('.device__platform')) : [];
+
+	for (let i = 0; i < devices.length; i++)
+	{
+		const device = devices[i],
+			name = device.dataset.name || '',
+			code = device.dataset.code || '',
+			style = window.getComputedStyle(device);
+
+		// If this is the current device
+		if (name && code && style.display === 'block')
+		{
+			Object.assign(FF.device, { name, code });
+			FF.events.dispatchEvent(new CustomEvent('devicechange', {
+				detail: {
+					name: name,
+					code: code,
+				},
+			}));
+			break;
+		}
+	}
+}
+
+/**
+ * Is mobile
+ *
+ * @returns {boolean}
+ */
+FF.isMobile = function()
+{
+	return this.getDevice().code === 'mv';
+};
+
+/**
+ * Is tablet
+ *
+ * @return {boolean}
+ */
+FF.isTablet = function()
+{
+	return this.getDevice().code === 'tv';
+};
+
+/**
+ * Is desktop
+ *
+ * @return {boolean}
+ */
+FF.isDesktop = function()
+{
+	return this.getDevice().code === 'dv';
+};
+
+/**
+ * Determine if a click
+ *
+ * If an event was bound to an element with both a "touchend" and "click" event.
+ *
+ * @param {MouseEvent|TouchEvent} e
+ * @returns {boolean}
+ */
+FF.isClick = function(e)
+{
+	var isClick = false,
+		isMobile = FF.isMobile();
+
+	// If mobile and at end of touch
+	if (isMobile && e.type === "touchend")
+	{
+		isClick = true;
+	}
+	// If desktop and end of click
+	else if (!isMobile)
+	{
+		isClick = true;
+	}
+
+	return isClick;
+};
+
+/**
+ * Events
+ * @type {HTMLDivElement}
+ */
+FF.events = document.createElement('div');
+
+FF.DelayedEventsUtil = function()
+{
+};
+
+FF.DelayedEventsUtil.prototype =
+{
+	running: {
+		scroll: false,
+		resize: false,
+	},
+	callbacks: {
+		scroll: [],
+		resize: [],
+	},
+	timer: {
+		scroll: null,
+		resize: null,
+	},
+	event: {
+		scroll: null,
+		resize: null,
+	},
+
+	/**
+	 * Toggle the delayed on scroll
+	 * @param {string} event
+	 */
+	toggle: function(event)
+	{
+		if (this.running[event] === false && this.callbacks[event].length > 0)
+		{
+			this.start(event);
+		}
+		else if (!this.running[event] && this.callbacks[event].length === 0)
+		{
+			this.stop(event);
+		}
+	},
+	/**
+	 * Start the delayed on scroll
+	 * @param {string} event
+	 */
+	start: function(event)
+	{
+		this.running[event] = true;
+		this.event[event] = () =>
+		{
+			// clear timeout if already set
+			if (this.timer[event] !== null)
+			{
+				clearTimeout(this.timer[event]);
+			}
+
+			// start new timeout
+			this.timer[event] = setTimeout(() =>
+			{
+				this.fire(event);
+			}, 100);
+		};
+
+		window.addEventListener(event, this.event[event]);
+	},
+	/**
+	 * Stop the delayed on scroll
+	 * @param {string} event
+	 */
+	stop: function(event)
+	{
+		this.running[event] = false;
+		window.removeEventListener(event, this.event[event]);
+	},
+	/**
+	 * Add a callback for a delayed event
+	 * @param {string} event
+	 * @param {Function} callback
+	 */
+	add: function(event, callback)
+	{
+		this.callbacks[event].push(callback);
+		this.toggle(event);
+	},
+	/**
+	 * Remove a callback from a delayed event
+	 * @param {string} event
+	 * @param {Function} callback
+	 */
+	remove: function(event, callback)
+	{
+		this.callbacks[event].splice(this.callbacks[event].indexOf(callback), 1);
+		this.toggle(event);
+	},
+	/**
+	 * Fire our callbacks
+	 */
+	fire: function(event)
+	{
+		this.callbacks[event].forEach(callback =>
+		{
+			if (typeof callback === 'function')
+			{
+				callback();
+			}
+		});
+	},
+};
+
+/**
+ * Init delayed scroll event listener
+ * @type {FF.DelayedEventsUtil}
+ */
+FF.delayedEvent = new FF.DelayedEventsUtil();

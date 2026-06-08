@@ -162,3 +162,24 @@ class EnsembleResponse(BaseModel):
     current_regime: str = Field(..., description="Current market regime")
     current_volatility: float = Field(..., description="Current volatility")
     risk_warnings: List[str] = Field(default_factory=list, description="Risk warnings")
+
+
+class RetrainingRequest(BaseModel):
+    """Model retraining request."""
+    models: Optional[List[str]] = Field(
+        default=None,
+        description="List of model names to retrain (e.g., ['wavelet', 'hmm', 'lstm', 'tft']). If None, defaults to all."
+    )
+    trigger_reason: Optional[str] = Field(
+        default="manual",
+        description="Reason for retraining (manual, degradation, scheduled)"
+    )
+
+
+class RetrainingResponse(BaseModel):
+    """Model retraining response."""
+    job_id: str = Field(..., description="Unique retraining job ID")
+    status: str = Field(..., description="Job status (scheduled, in_progress, completed, failed)")
+    timestamp: datetime = Field(default_factory=datetime.now)
+    models: Optional[List[str]] = Field(default=None, description="Models to retrain")
+    trigger_reason: Optional[str] = Field(default=None, description="Retraining trigger reason")

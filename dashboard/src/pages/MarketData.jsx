@@ -2,12 +2,24 @@
 import { useState, useEffect, useRef } from 'react';
 import { TrendingUp, TrendingDown, RefreshCw, WifiOff } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
-import { fetchGoldPrice, fetchPaperTradingTrades } from '../data/api';
+import { fetchGoldPrice, fetchPaperTradingTrades, fetchFearGreed } from '../data/api';
 
 // ============================================================================
 // FEAR & GREED WIDGET
 // ============================================================================
 function FearGreedWidget() {
+  const [currentValue, setCurrentValue] = useState(44);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchFearGreed().then(res => {
+      if (mounted && res && res.status === 'ok') {
+        setCurrentValue(res.value);
+      }
+    }).catch(e => console.warn('Could not fetch fear greed', e));
+    return () => { mounted = false; };
+  }, []);
+
   const data = Array.from({ length: 30 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - (29 - i));
@@ -17,10 +29,8 @@ function FearGreedWidget() {
       value: Math.round(val)
     };
   });
-  // Force latest value to 44 to match screenshot
-  data[data.length - 1].value = 44;
-  
-  const currentValue = data[data.length - 1].value;
+  // Force latest value to match real time
+  data[data.length - 1].value = currentValue;
   
   // Needle calculation (180deg to 0deg)
   const angle = 180 - (currentValue / 100) * 180;
@@ -144,7 +154,7 @@ function TradingViewWidget() {
           "symbol": "OANDA:XAUUSD",
           "interval": "15",
           "range": "5D",
-          "timezone": "Etc/UTC",
+          "timezone": "Asia/Kolkata",
           "theme": "dark",
           "style": "1",
           "locale": "en",

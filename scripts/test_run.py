@@ -61,7 +61,7 @@ def simulate_1000_dollars():
     # 2. Fetch Large Dataset (60 Days / 15-Min)
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from src.paper_trading.live_inference import (
-        run_wavelet, run_hmm, run_lstm, run_tft, run_genetic, run_ensemble, fetch_live_gold_data, run_hmm_pro
+        run_wavelet, run_hmm, run_lstm, run_tft_pro, run_ensemble, fetch_live_gold_data, run_hmm_pro
     )
     from src.paper_trading.prediction_logger import log_prediction_cycle
 
@@ -122,8 +122,9 @@ def simulate_1000_dollars():
         wavelet_res = run_wavelet(df_slice_model)
         hmm_res = run_hmm(df_slice_model)
         lstm_res = run_lstm(df_slice_model)
-        tft_res = run_tft(df_slice_model)
-        genetic_res = run_genetic(df_slice_model)
+        # TFT_Pro needs regime + model outputs from HMM/Wavelet for cross-model features
+        regime_for_tft = hmm_res.get("regime", "NORMAL")
+        tft_pro_res = run_tft_pro(df_slice_model, regime_for_tft, wavelet_res, hmm_res)
 
         regime = hmm_res.get("regime", "NORMAL")
         macro_data = {
@@ -133,7 +134,7 @@ def simulate_1000_dollars():
         
         individual = {
             "wavelet": wavelet_res, "hmm": hmm_res, "lstm": lstm_res,
-            "tft": tft_res, "genetic": genetic_res, "hmm_pro": hmm_pro_res,
+            "tft_pro": tft_pro_res, "hmm_pro": hmm_pro_res,
         }
         
         ensemble_res = run_ensemble(individual, regime, macro_data)

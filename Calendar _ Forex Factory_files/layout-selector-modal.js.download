@@ -1,0 +1,1 @@
+class LayoutSelectorModal extends SimpleModal{constructor(){super('1200px','100vh',['simple-modal-content--nocontrols','simple-modal-content-nomargin','simple-modal-content--no-padding'])}}window.customElements.define('layout-selector-modal',LayoutSelectorModal);

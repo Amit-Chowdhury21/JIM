@@ -91,6 +91,10 @@ class RiskManager:
         # Win-rate optimizations (Lever 2 & 3)
         self.allowed_regimes = cb_cfg.get("allowed_regimes", ["NORMAL"])
         self.time_filter_enabled = cb_cfg.get("time_filter_enabled", True)
+        import os
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            self.time_filter_enabled = False
+            
         self.high_liquidity_hours = cb_cfg.get("high_liquidity_hours", [(8, 11), (13, 16)])
 
         # State

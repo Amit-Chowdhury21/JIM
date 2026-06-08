@@ -1,0 +1,1 @@
+window.dataStore=new Vuex.Store({}),window.appEventBus=new Vue({name:'Event Bus'});

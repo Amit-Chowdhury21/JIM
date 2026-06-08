@@ -333,7 +333,7 @@ class TestSignalEndpoint:
     def test_signal_not_initialized(self, client):
         """Test signal injection when engine not initialized."""
         response = client.post("/paper-trading/signal", json={
-            "model_name": "wavelet",
+            "model_name": "wavelet_pro",
             "signal_type": "LONG",
             "confidence": 0.75,
             "price": 2350.0,
@@ -344,7 +344,7 @@ class TestSignalEndpoint:
         """Test signal injection when engine is initialized but not running."""
         set_engine(engine, default_config, risk_manager)
         response = client.post("/paper-trading/signal", json={
-            "model_name": "wavelet",
+            "model_name": "wavelet_pro",
             "signal_type": "LONG",
             "confidence": 0.75,
             "price": 2350.0,
@@ -371,7 +371,7 @@ class TestSignalEndpoint:
     def test_signal_low_confidence_no_trade(self, client, started_engine):
         """Test that low confidence signals don't trigger trades."""
         response = client.post("/paper-trading/signal", json={
-            "model_name": "wavelet",
+            "model_name": "wavelet_pro",
             "signal_type": "LONG",
             "confidence": 0.30,
             "price": 2350.0,
@@ -393,7 +393,7 @@ class TestSignalEndpoint:
     def test_signal_invalid_type(self, client, started_engine):
         """Test signal with invalid signal type."""
         response = client.post("/paper-trading/signal", json={
-            "model_name": "wavelet",
+            "model_name": "wavelet_pro",
             "signal_type": "INVALID",
             "confidence": 0.75,
             "price": 2350.0,
@@ -511,7 +511,7 @@ class TestFullLifecycle:
 
         # 8. Inject a CLOSE signal
         resp = client.post("/paper-trading/signal", json={
-            "model_name": "hmm",
+            "model_name": "hmm_pro",
             "signal_type": "CLOSE",
             "confidence": 0.90,
             "price": 2360.0,

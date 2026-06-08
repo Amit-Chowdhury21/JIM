@@ -177,17 +177,14 @@ export default function PredictionLog() {
           <table className="data-table" style={{ width: '100%', minWidth: '1600px' }}>
             <thead>
               <tr>
-                <th style={{ minWidth: '160px' }}>Timestamp</th>
+                <th>Timestamp</th>
                 <th>Price</th>
                 <th>Regime</th>
-                <th>WVP (Pro)</th>
-                <th>WVB (Basic)</th>
-                <th>HMM</th>
+                <th>Wavelet Pro</th>
+                <th>Hmm Pro</th>
                 <th>LSTM</th>
-                <th>TFT</th>
-                <th>Genetic</th>
-                <th>HMP (GPU)</th>
-                <th>Ensemble</th>
+                <th>TFT Pro</th>
+                <th style={{ background: 'rgba(255,184,0,0.05)' }}>Ensemble</th>
                 <th>Kelly</th>
                 <th>Trade</th>
                 <th>P&L</th>
@@ -204,7 +201,7 @@ export default function PredictionLog() {
                 [...logs].reverse().map((log, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                      {log.timestamp.replace('T', ' ')}
+                      {log.timestamp ? log.timestamp.replace('T', ' ') : '-'}
                     </td>
                     <td style={{ fontFamily: 'monospace', fontSize: '13px' }}>
                       ${parseFloat(log.price).toFixed(2)}
@@ -217,53 +214,35 @@ export default function PredictionLog() {
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                         <span style={{ fontWeight: 600, color: getSignalColor(log.wavelet_pro_signal), fontSize: '12px' }}>{log.wavelet_pro_signal}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{(log.wavelet_pro_conf * 100).toFixed(0)}%</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{log.wavelet_pro_conf ? (parseFloat(log.wavelet_pro_conf) * 100).toFixed(0) : '0'}%</span>
                       </div>
                     </td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <span style={{ fontWeight: 600, color: getSignalColor(log.wavelet_basic_signal), fontSize: '12px' }}>{log.wavelet_basic_signal}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{(log.wavelet_basic_conf * 100).toFixed(0)}%</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <span style={{ fontWeight: 600, color: getSignalColor(log.hmm_signal), fontSize: '12px' }}>{log.hmm_signal}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{(log.hmm_conf * 100).toFixed(0)}%</span>
+                        <span style={{ fontWeight: 600, color: getSignalColor(log.hmm_pro_signal), fontSize: '12px' }}>{log.hmm_pro_signal}</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{log.hmm_pro_conf ? (parseFloat(log.hmm_pro_conf) * 100).toFixed(0) : '0'}%</span>
                       </div>
                     </td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                         <span style={{ fontWeight: 600, color: getSignalColor(log.lstm_signal), fontSize: '12px' }}>{log.lstm_signal}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{(log.lstm_conf * 100).toFixed(0)}%</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{log.lstm_conf ? (parseFloat(log.lstm_conf) * 100).toFixed(0) : '0'}%</span>
                       </div>
                     </td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <span style={{ fontWeight: 600, color: getSignalColor(log.tft_signal), fontSize: '12px' }}>{log.tft_signal}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{(log.tft_conf * 100).toFixed(0)}%</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <span style={{ fontWeight: 600, color: getSignalColor(log.genetic_signal), fontSize: '12px' }}>{log.genetic_signal}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{(log.genetic_conf * 100).toFixed(0)}%</span>
-                      </div>
-                    </td>
-                    <td style={{ background: 'rgba(150, 100, 255, 0.1)' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <span style={{ fontWeight: 600, color: getSignalColor(log.hmm_pro_signal), fontSize: '12px' }}>{log.hmm_pro_signal}</span>
-                        <span style={{ fontSize: '11px', color: 'rgba(150, 100, 255, 0.7)' }}>{(log.hmm_pro_conf * 100).toFixed(0)}%</span>
+                        <span style={{ fontWeight: 600, color: getSignalColor(log.tft_pro_signal), fontSize: '12px' }}>{log.tft_pro_signal}</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{log.tft_pro_conf ? (parseFloat(log.tft_pro_conf) * 100).toFixed(0) : '0'}%</span>
                       </div>
                     </td>
                     <td style={{ background: 'rgba(255,184,0,0.05)' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                         <span style={{ fontWeight: 700, color: getSignalColor(log.ensemble_signal), fontSize: '13px' }}>{log.ensemble_signal}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--gold-primary)' }}>{(log.ensemble_conf * 100).toFixed(0)}%</span>
+                        <span style={{ fontSize: '11px', color: 'var(--gold-primary)' }}>{log.ensemble_conf ? (parseFloat(log.ensemble_conf) * 100).toFixed(0) : '0'}%</span>
                       </div>
                     </td>
                     <td style={{ fontSize: '12px' }}>
-                      {log.kelly_fraction ? `${(log.kelly_fraction * 100).toFixed(1)}%` : '-'}
+                      {log.kelly_fraction && !isNaN(parseFloat(log.kelly_fraction)) ? `${(parseFloat(log.kelly_fraction) * 100).toFixed(1)}%` : '-'}
                     </td>
                     <td>
                       {log.trade_taken === 'YES' ? (

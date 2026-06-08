@@ -1,0 +1,1 @@
+class AlertSimpleModal extends SimpleModal{constructor(){const a=FF.isMobile()?'auto':'560px';super(a,'100vh',['simple-modal-content--nocontrols','simple-modal-content-nomargin'])}}window.customElements.define('alert-simple-modal',AlertSimpleModal);

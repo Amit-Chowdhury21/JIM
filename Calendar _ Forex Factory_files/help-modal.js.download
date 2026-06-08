@@ -1,0 +1,1 @@
+class HelpModal extends SimpleModal{constructor(){super('560px','100vh',['simple-modal-content--nocontrols','simple-modal-content-nomargin','simple-modal-content--no-padding'])}}window.customElements.define('help-modal',HelpModal);

@@ -36,66 +36,6 @@ def _make_sample_data(n=500):
     }, index=dates)
 
 
-# =============================================================================
-# Wavelet Denoiser Tests
-# =============================================================================
-
-class TestWaveletDenoiser:
-    """Tests for the wavelet de-noising model."""
-
-    def setup_method(self):
-        from src.models.wavelet import WaveletDenoiser
-        self.model = WaveletDenoiser(wavelet="db4", levels=5)
-
-    def test_denoise_reduces_variance(self):
-        """De-noised signal should have less variance than original."""
-        np.random.seed(42)
-        # Create signal: trend + noise
-        t = np.linspace(0, 10, 1000)
-        trend = 1800 + 50 * np.sin(t)
-        noise = np.random.randn(1000) * 20
-        signal = trend + noise
-
-        denoised = self.model.denoise(signal)
-
-        assert len(denoised) == len(signal)
-        assert np.std(denoised) < np.std(signal)
-
-    def test_denoise_preserves_trend(self):
-        """De-noised signal should follow the general trend."""
-        np.random.seed(42)
-        t = np.linspace(0, 4, 500)
-        trend = 1800 + 100 * t  # Clear uptrend
-        signal = trend + np.random.randn(500) * 10
-
-        denoised = self.model.denoise(signal)
-
-        # Correlation between denoised and trend should be very high
-        corr = np.corrcoef(denoised, trend)[0, 1]
-        assert corr > 0.95
-
-    def test_frequency_bands(self):
-        """Should decompose into named frequency bands."""
-        np.random.seed(42)
-        signal = np.random.randn(500) + 1800
-
-        bands = self.model.get_frequency_bands(signal)
-
-        assert "noise" in bands
-        assert "trend" in bands
-        for name, band in bands.items():
-            assert len(band) == len(signal)
-
-    def test_generate_signal_output_format(self):
-        """Signal should be LONG, SHORT, or HOLD with confidence 0-1."""
-        np.random.seed(42)
-        prices = 1800 + np.cumsum(np.random.randn(300) * 5)
-        df = pd.DataFrame({"close": prices})
-
-        output = self.model.generate_signal(df)
-
-        assert output.signal in ["LONG", "SHORT", "HOLD"]
-        assert 0.0 <= output.confidence <= 1.0
 
 
 # =============================================================================
@@ -194,7 +134,7 @@ class TestRiskManager:
 
     def test_circuit_breaker_daily_loss(self):
         """Should halt after hitting daily loss limit."""
-        self.rm.risk_state.daily_pnl = -2500  # -2.5% on 100K
+        self.rm.risk_state.daily_pnl = -3500  # -3.5% on 100K
         can_trade, reason = self.rm.check_circuit_breakers(100000)
         assert not can_trade
         assert "Daily loss" in reason
@@ -225,7 +165,7 @@ class TestRiskManager:
 
         # When confidence is above or equal to limit
         can_trade, reason = self.rm.check_circuit_breakers(
-            100000, ensemble_conf=0.68
+            100000, ensemble_conf=0.80
         )
         assert can_trade
         assert reason == "OK"
@@ -277,13 +217,15 @@ class TestRiskManager:
 
     def test_regime_cooldown_blocks_trade(self):
         """Should temporarily halt trading immediately after a regime switch."""
+        self.rm.allowed_regimes = ["NORMAL", "CRISIS"]
         # Initial state should not block (starts high)
         can_trade, reason = self.rm.check_circuit_breakers(100000)
         assert can_trade
         assert reason == "OK"
 
-        # Change regime from NORMAL to CRISIS
-        self.rm.calculate_kelly_size(0.55, 100, 90, 100000, regime="CRISIS")
+        # Change regime from NORMAL to CRISIS (requires 3 consecutive bars to confirm)
+        for _ in range(3):
+            self.rm.calculate_kelly_size(0.55, 100, 90, 100000, regime="CRISIS")
         
         # Bars since switch should reset to 0
         assert self.rm.risk_state.bars_since_regime_switch == 0

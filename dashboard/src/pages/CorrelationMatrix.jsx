@@ -2,30 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { Grid3X3, Info, CheckCircle2, RefreshCw } from 'lucide-react';
 import { fetchCorrelationMatrix } from '../data/api';
 
-const modelIcons = { wavelet: '🌊', hmm: '📊', lstm: '🧠', tft: '⚡', genetic: '🧬', ensemble: '🎯' };
-const modelColors = { wavelet: '#3b82f6', hmm: '#a855f7', lstm: '#06b6d4', tft: '#f59e0b', genetic: '#22c55e', ensemble: '#ef4444' };
-const modelNames = ['wavelet', 'hmm', 'lstm', 'tft', 'genetic', 'ensemble'];
+const modelIcons = { wavelet_pro: '🌊', hmm_pro: '📊', lstm: '🧠', tft_pro: '⚡',  ensemble: '🎯' };
+const modelColors = { wavelet_pro: '#3b82f6', hmm_pro: '#a855f7', lstm: '#06b6d4', tft_pro: '#f59e0b',  ensemble: '#ef4444' };
+const modelNames = ['wavelet_pro', 'hmm_pro', 'lstm', 'tft_pro',  'ensemble'];
 
 // Default mock data structure as fallback
 const defaultCorrelationMatrix = {
-  wavelet: { wavelet: 100, hmm: 77, lstm: 27, tft: 37, genetic: 29, ensemble: 22 },
-  hmm: { wavelet: 39, hmm: 100, lstm: 58, tft: 28, genetic: 56, ensemble: 31 },
-  lstm: { wavelet: 69, hmm: 45, lstm: 100, tft: 78, genetic: 74, ensemble: 77 },
-  tft: { wavelet: 46, hmm: 54, lstm: 44, tft: 100, genetic: 68, ensemble: 66 },
-  genetic: { wavelet: 42, hmm: 67, lstm: 68, tft: 62, genetic: 100, ensemble: 28 },
-  ensemble: { wavelet: 78, hmm: 48, lstm: 28, tft: 53, genetic: 36, ensemble: 100 },
+  wavelet_pro: { wavelet_pro: 100, hmm_pro: 77, lstm: 27, tft_pro: 37,  ensemble: 22 },
+  hmm_pro: { wavelet_pro: 39, hmm_pro: 100, lstm: 58, tft_pro: 28,  ensemble: 31 },
+  lstm: { wavelet_pro: 69, hmm_pro: 45, lstm: 100, tft_pro: 78,  ensemble: 77 },
+  tft_pro: { wavelet_pro: 46, hmm_pro: 54, lstm: 44, tft_pro: 100,  ensemble: 66 },
+  ensemble: { wavelet_pro: 78, hmm_pro: 48, lstm: 28, tft_pro: 53,  ensemble: 100 },
 };
 
 const defaultAvgPairwise = {
-  wavelet: 43, hmm: 45, lstm: 65, tft: 51, genetic: 58
-};
+  wavelet_pro: 43, hmm_pro: 45, lstm: 65, tft_pro: 51, };
 
 const defaultConsensus = [
-  { model: 'wavelet', name: 'Wavelet', agreement: 22 },
-  { model: 'hmm', name: 'Hmm', agreement: 31 },
+  { model: 'wavelet_pro', name: 'Wavelet', agreement: 22 },
+  { model: 'hmm_pro', name: 'Hmm', agreement: 31 },
   { model: 'lstm', name: 'Lstm', agreement: 77 },
-  { model: 'tft', name: 'Tft', agreement: 66 },
-  { model: 'genetic', name: 'Genetic', agreement: 28 },
+  { model: 'tft_pro', name: 'Tft', agreement: 66 },
 ];
 
 function getCellColor(val) {
@@ -219,7 +216,7 @@ export default function CorrelationMatrix() {
 
         {/* Bottom Cards: Avg Pairwise Agreement */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '20px' }}>
-          {['wavelet', 'hmm', 'lstm', 'tft', 'genetic'].map(model => (
+          {['wavelet_pro', 'hmm_pro', 'lstm', 'tft_pro'].map(model => (
             <div key={model} className="card animate-in" style={{ padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                 <span style={{ fontSize: '14px' }}>{modelIcons[model]}</span>

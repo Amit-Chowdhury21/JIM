@@ -57,6 +57,12 @@ class EconomicCalendar:
             self.last_fetch_date = now_utc.date()
             logger.info(f"Loaded {len(self.high_impact_events)} high-impact USD events for the week.")
             
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 429:
+                logger.warning("Economic calendar rate limited (429). Backing off for today.")
+                self.last_fetch_date = now_utc.date()
+            else:
+                logger.error(f"Failed to fetch economic calendar: {e}")
         except Exception as e:
             logger.error(f"Failed to fetch economic calendar: {e}")
 

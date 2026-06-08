@@ -33,7 +33,11 @@ import pandas as pd
 import time
 from typing import Dict, List, Optional, Tuple, Any
 from collections import deque, Counter
+import warnings
 from loguru import logger
+
+# Suppress hmmlearn degenerate covariance warnings
+warnings.filterwarnings("ignore", module="hmmlearn")
 
 from src.models.base import BaseModel, ModelOutput
 
@@ -50,8 +54,16 @@ except ImportError:
 try:
     from hmmlearn import hmm
     HMM_AVAILABLE = True
+    # Check for GMMHMM availability
+    try:
+        _test_gmmhmm = hmm.GMMHMM(n_components=2, n_mix=2)
+        GMMHMM_AVAILABLE = True
+    except Exception:
+        GMMHMM_AVAILABLE = False
+        logger.warning("GMMHMM not available in hmmlearn. RegimeDetector will fallback to GaussianHMM.")
 except ImportError:
     HMM_AVAILABLE = False
+    GMMHMM_AVAILABLE = False
     logger.warning("hmmlearn not installed. RegimeDetector will use a simplified fallback.")
 
 
@@ -131,7 +143,26 @@ class RegimeDetector(BaseModel):
 
         # ── Primary HMM (5-regime on 1m data) ──
         self.model: Optional[Any] = None
-        if HMM_AVAILABLE:
+        if GMMHMM_AVAILABLE:
+            try:
+                self.model = hmm.GMMHMM(
+                    n_components=n_regimes,
+                    n_mix=3,
+                    covariance_type=covariance_type,
+                    n_iter=n_iter,
+                    random_state=42,
+                    tol=1e-4,
+                )
+            except Exception as e:
+                logger.warning(f"GMMHMM initialization failed: {e}. Falling back to GaussianHMM.")
+                self.model = hmm.GaussianHMM(
+                    n_components=n_regimes,
+                    covariance_type=covariance_type,
+                    n_iter=n_iter,
+                    random_state=42,
+                    tol=1e-4,
+                )
+        elif HMM_AVAILABLE:
             self.model = hmm.GaussianHMM(
                 n_components=n_regimes,
                 covariance_type=covariance_type,
@@ -143,7 +174,37 @@ class RegimeDetector(BaseModel):
         # ── HMM Ensemble (Upgrade 7): two additional 3-regime models ──
         self._ensemble_models: List[Any] = []
         self._ensemble_orders: List[Optional[Dict]] = []
-        if HMM_AVAILABLE:
+        if GMMHMM_AVAILABLE:
+            try:
+                # Model A: 3-regime, 3-mix, diagonal covariance (coarse, stable)
+                self._ensemble_models.append(hmm.GMMHMM(
+                    n_components=3, n_mix=3, covariance_type="diag",
+                    n_iter=n_iter, random_state=42, tol=1e-4,
+                ))
+                self._ensemble_orders.append(None)
+                # Model B: 3-regime, 3-mix, full covariance (captures correlations)
+                self._ensemble_models.append(hmm.GMMHMM(
+                    n_components=3, n_mix=3, covariance_type="full",
+                    n_iter=n_iter, random_state=42, tol=1e-4,
+                ))
+                self._ensemble_orders.append(None)
+            except Exception as e:
+                logger.warning(f"GMMHMM ensemble initialization failed: {e}. Falling back to GaussianHMM.")
+                self._ensemble_models = []
+                self._ensemble_orders = []
+                # Model A: 3-regime, diagonal covariance (coarse, stable)
+                self._ensemble_models.append(hmm.GaussianHMM(
+                    n_components=3, covariance_type="diag",
+                    n_iter=n_iter, random_state=42, tol=1e-4,
+                ))
+                self._ensemble_orders.append(None)
+                # Model B: 3-regime, full covariance (captures correlations)
+                self._ensemble_models.append(hmm.GaussianHMM(
+                    n_components=3, covariance_type="full",
+                    n_iter=n_iter, random_state=42, tol=1e-4,
+                ))
+                self._ensemble_orders.append(None)
+        elif HMM_AVAILABLE:
             # Model A: 3-regime, diagonal covariance (coarse, stable)
             self._ensemble_models.append(hmm.GaussianHMM(
                 n_components=3, covariance_type="diag",
@@ -165,7 +226,23 @@ class RegimeDetector(BaseModel):
         self._tf_orders: Dict[str, Optional[Dict]] = {}
         self._tf_trained: Dict[str, bool] = {}
         self._tf_feature_stats: Dict[str, Tuple] = {}
-        if HMM_AVAILABLE:
+        
+        if GMMHMM_AVAILABLE:
+            for tf in ["5m", "15m"]:
+                try:
+                    self._tf_models[tf] = hmm.GMMHMM(
+                        n_components=3, n_mix=3, covariance_type="diag",
+                        n_iter=min(n_iter, 500), random_state=42, tol=1e-4,
+                    )
+                except Exception as e:
+                    logger.warning(f"GMMHMM Multi-TF initialization failed: {e}. Falling back to GaussianHMM.")
+                    self._tf_models[tf] = hmm.GaussianHMM(
+                        n_components=3, covariance_type="diag",
+                        n_iter=min(n_iter, 500), random_state=42, tol=1e-4,
+                    )
+                self._tf_orders[tf] = None
+                self._tf_trained[tf] = False
+        elif HMM_AVAILABLE:
             for tf in ["5m", "15m"]:
                 self._tf_models[tf] = hmm.GaussianHMM(
                     n_components=3, covariance_type="diag",
@@ -284,6 +361,13 @@ class RegimeDetector(BaseModel):
             f_std = X.std(axis=0) + 1e-8
             X = (X - f_mean) / f_std
 
+        # ── CRITICAL FIX: Replace inf/nan with safe values before returning ──
+        # This prevents "array must not contain infs or NaNs" errors downstream
+        inf_mask = ~np.isfinite(X)
+        if np.any(inf_mask):
+            logger.debug(f"Replacing {np.sum(inf_mask)} inf/nan values in features")
+            X[~np.isfinite(X)] = 0.0
+
         return X, features.index
 
     # ──────────────────────────────────────────────────────────
@@ -333,6 +417,12 @@ class RegimeDetector(BaseModel):
         if len(obs_cpu) < 30:
             logger.warning("HMM: Not enough data to train")
             return {}
+
+        # ── DATA VALIDATION: Check for inf/nan before training ──
+        if not np.all(np.isfinite(obs_cpu)):
+            inf_count = np.sum(~np.isfinite(obs_cpu))
+            logger.warning(f"Found {inf_count} inf/nan values in observation matrix, replacing with 0")
+            obs_cpu[~np.isfinite(obs_cpu)] = 0.0
 
         # Save primary model stats (TF training will overwrite self._feature_mean/std)
         primary_mean = self._feature_mean.copy()
@@ -409,12 +499,20 @@ class RegimeDetector(BaseModel):
         for i, ens_model in enumerate(self._ensemble_models):
             label = chr(65 + i)
             try:
-                ens_model.fit(obs_cpu)
-                ens_states = ens_model.predict(obs_cpu)
+                # Extra validation before fit
+                if not np.all(np.isfinite(obs_cpu)):
+                    logger.debug(f"Ensemble HMM-{label}: Data has inf/nan, replacing...")
+                    obs_cpu_clean = obs_cpu.copy()
+                    obs_cpu_clean[~np.isfinite(obs_cpu_clean)] = 0.0
+                else:
+                    obs_cpu_clean = obs_cpu
+                
+                ens_model.fit(obs_cpu_clean)
+                ens_states = ens_model.predict(obs_cpu_clean)
                 ens_vol = {}
                 for s in range(3):
                     mask = ens_states == s
-                    ens_vol[s] = float(np.std(obs_cpu[mask, 0])) if mask.any() else 0.0
+                    ens_vol[s] = float(np.std(obs_cpu_clean[mask, 0])) if mask.any() else 0.0
                 ens_sorted = sorted(ens_vol, key=lambda x: ens_vol[x])
                 self._ensemble_orders[i] = {old: new for new, old in enumerate(ens_sorted)}
                 logger.info(f"  Ensemble HMM-{label} trained (3-regime)")
@@ -429,6 +527,11 @@ class RegimeDetector(BaseModel):
                 try:
                     tf_obs, _ = self.prepare_features(tf_df, fit=True)
                     tf_obs_cpu = np.asarray(tf_obs)
+                    
+                    # Validate before training
+                    if not np.all(np.isfinite(tf_obs_cpu)):
+                        logger.debug(f"Multi-TF HMM-{tf}: Data has inf/nan, replacing...")
+                        tf_obs_cpu[~np.isfinite(tf_obs_cpu)] = 0.0
 
                     # Save TF-specific stats before they get overwritten
                     self._tf_feature_stats[tf] = (

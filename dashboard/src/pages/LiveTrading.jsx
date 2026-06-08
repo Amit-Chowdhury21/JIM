@@ -88,11 +88,11 @@ export default function LiveTrading() {
             DXY: {signals?.macro?.dxy?.toFixed(2) || '---'} | US10Y: {signals?.macro?.us10y?.toFixed(2) || '---'}% | GSR: {signals?.macro?.gold_silver_ratio?.toFixed(1) || '---'}
           </div>
           {/* Regime */}
-          {modelSigs['hmm']?.regime && <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 12px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:600,
-            background:modelSigs['hmm']?.regime==='GROWTH'?'var(--green-dim)':modelSigs['hmm']?.regime==='CRISIS'?'var(--red-dim)':'var(--blue-dim)',
-            color:modelSigs['hmm']?.regime==='GROWTH'?'var(--green)':modelSigs['hmm']?.regime==='CRISIS'?'var(--red)':'var(--blue)',
+          {modelSigs['hmm_pro']?.regime && <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 12px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:600,
+            background:modelSigs['hmm_pro']?.regime==='GROWTH'?'var(--green-dim)':modelSigs['hmm_pro']?.regime==='CRISIS'?'var(--red-dim)':'var(--blue-dim)',
+            color:modelSigs['hmm_pro']?.regime==='GROWTH'?'var(--green)':modelSigs['hmm_pro']?.regime==='CRISIS'?'var(--red)':'var(--blue)',
             border:'1px solid rgba(59,130,246,0.3)'}}>
-            <Activity size={12}/> {modelSigs['hmm']?.regime}
+            <Activity size={12}/> {modelSigs['hmm_pro']?.regime}
           </div>}
           {/* Live status */}
           <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 12px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:600,
@@ -127,7 +127,7 @@ export default function LiveTrading() {
           <div style={{display:'flex',gap:20,flexWrap:'wrap',fontSize:12}}>
             <div><span style={{color:'var(--text-muted)'}}>Interval:</span> <span style={{color:'var(--gold)',fontWeight:600,fontFamily:'var(--font-mono)'}}>60s</span></div>
             <div><span style={{color:'var(--text-muted)'}}>Silver Hedge:</span> <span style={{color:'var(--blue)',fontWeight:600}}>Ag=${agFeed.current_xag > 0 ? agFeed.current_xag.toFixed(2) : 'WAIT'} | β={agBeta.toFixed(3)}</span></div>
-            <div><span style={{color:'var(--text-muted)'}}>Models:</span> <span style={{color:'var(--green)',fontWeight:600}}>7 Active</span></div>
+            <div><span style={{color:'var(--text-muted)'}}>Models:</span> <span style={{color:'var(--green)',fontWeight:600}}>5 Active</span></div>
             <div><span style={{color:'var(--text-muted)'}}>Risk:</span> <span style={{color:breakers.every(b=>b.ok)?'var(--green)':'var(--red)',fontWeight:600}}>{breakers.every(b=>b.ok)?'ALL CLEAR':'ALERT'}</span></div>
           </div>
         </div>
@@ -205,20 +205,23 @@ export default function LiveTrading() {
       <div className="card animate-in" style={{marginBottom:20}}>
         <div className="card-header"><span className="card-title">Model Signals (Live)</span>
           <div style={{display:'flex',gap:8}}>
-            <span className="card-badge badge-gold">7 MODELS</span>
+            <span className="card-badge badge-gold">5 MODELS</span>
             {weights && <span className={`card-badge ${weights.adaptation_active?'badge-green':'badge-orange'}`} style={{fontSize:10}}>
               <Zap size={10} style={{marginRight:3}}/>{weights.adaptation_active?'ADAPTIVE':'BASE'}
             </span>}
           </div>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))',gap:10}}>
-          {Object.entries(modelSigs).map(([model,sig])=>{
+          {Object.entries(modelSigs)
+            .filter(([m]) => ['wavelet_pro', 'hmm_pro', 'lstm', 'tft_pro', 'ensemble'].includes(m))
+            .map(([model,sig])=>{
             const s = sig.signal || sig.lastSignal || 'HOLD';
             const c = sig.confidence ?? 0;
             const w = weights?.weights?.[model];
+            const displayName = model.replace('_', ' ');
             return (<div key={model} style={{padding:12,borderRadius:'var(--radius-sm)',background:'var(--bg-secondary)',border:'1px solid var(--border-color)'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-                <span style={{fontSize:12,fontWeight:600,color:'var(--text-bright)',textTransform:'capitalize'}}>{model}</span>
+                <span style={{fontSize:12,fontWeight:600,color:'var(--text-bright)',textTransform:'capitalize'}}>{displayName}</span>
                 <span style={{fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:12,background:signalBg(s),color:signalColor(s),display:'flex',alignItems:'center',gap:3}}>
                   {signalIcon(s)} {s}
                 </span>

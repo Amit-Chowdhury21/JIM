@@ -1,0 +1,350 @@
+A professional TFT pipeline for gold trading should treat TFT as a multi-horizon probabilistic forecasting engine, not just a “buy/sell predictor.” TFT was designed for multi-horizon forecasting with mixed inputs such as static covariates, known future inputs, and observed historical series, and it uses recurrent layers, self-attention, variable selection, and gating to improve performance and interpretability.
+
+Phase 1: System design
+Start by defining TFT’s role inside your gold stack: HMM = regime, Wavelet = structure/noise decomposition, TFT = forward forecast and confidence. This separation avoids overlap and lets TFT use HMM regime outputs and Wavelet-derived features as inputs rather than competing with them directly.
+
+For your hardware, the Ryzen 9800X3D should handle data engineering, feature generation, walk-forward backtests, and inference orchestration, while the RTX 5070 Ti should handle TFT training, hyperparameter tuning, and rolling retraining because TFT is GPU-friendly and minute-level financial experiments commonly recommend CUDA-enabled hardware. With 32GB RAM, keep datasets and feature windows disciplined; it is enough for serious single-instrument research, but you should avoid bloated feature stores and overly large batch histories.
+
+Phase 2: Data architecture
+TFT works best when inputs are grouped into the three categories it was built for: observed past inputs, known future inputs, and static covariates. The original TFT framework explicitly distinguishes these input types because real forecasting problems often contain all three.
+
+For a gold system, structure your data like this:
+
+| Input type           | Gold trading examples                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------ |
+| Observed past inputs | XAU/USD OHLCV, log returns, ATR, realized volatility, spread proxies, DXY returns, yield changes |
+| Known future inputs  | Hour of day, day of week, London/NY session flags, CPI/FOMC/NFP schedule indicators              |
+| Static covariates    | Instrument ID, trading style bucket, long-term regime family, model version                      |
+
+Also include existing model outputs as observed inputs:
+
+HMM regime probabilities and dominant state
+
+Wavelet trend, cycle, denoised return, noise level
+This is one of the biggest reasons TFT can add real value to your current stack.
+
+Phase 3: Target design
+Do not train TFT to predict only raw price. In trading, the better professional targets are future returns, volatility bands, or directional move over multiple horizons, because these are more directly usable by execution and risk logic. TFT is specifically designed for multi-horizon forecasting, so exploit that by predicting several horizons at once.
+
+A professional gold target setup is:
+
+| Horizon        | Example target                  |
+| -------------- | ------------------------------- |
+| Short horizon  | 1-bar or 3-bar forward return   |
+| Medium horizon | 12-bar or 24-bar forward return |
+| Long horizon   | 1-day or 5-day forward return   |
+
+Then define outputs as quantiles, such as 10th, 50th, and 90th percentile, because TFT commonly uses quantile forecasting and quantile loss for interval predictions rather than a single point estimate. In simple trading terms:
+
+50th percentile = expected path
+
+10th percentile = downside scenario
+
+90th percentile = upside scenario
+
+The distance between 10th and 90th becomes a live uncertainty measure, which is extremely valuable for gold position sizing.
+
+Phase 4: Feature engineering
+This phase is where most trading TFT implementations succeed or fail. TFT is powerful, but it does not remove the need for thoughtful financial features; financial TFT projects still rely heavily on engineered returns, volatility, moving averages, and covariates before the model adds value.
+
+Build feature groups like these:
+
+Price and volatility
+Log returns, rolling returns, ATR, realized volatility, range compression/expansion
+
+Session highs/lows, gap size, intraday reversal measures
+
+Macro and cross-asset
+DXY returns
+
+U.S. 2Y/10Y yield change
+
+VIX change
+
+Silver and oil relative moves
+
+Time and event
+Hour, weekday, month-end, options expiry week
+
+Pre-CPI, post-CPI, pre-FOMC, post-FOMC flags
+
+Model-derived
+HMM regime probability vector
+
+HMM transition confidence
+
+Wavelet trend component
+
+Wavelet cycle oscillator
+
+Wavelet noise/entropy measure
+
+The key is not to dump hundreds of noisy columns into TFT. Use a professional feature review loop where you test whether added variables improve live-like walk-forward performance rather than only in-sample metrics.
+
+Phase 5: Windowing and dataset design
+TFT needs a clear encoder length and prediction length. In plain language, this means: how much history the model sees before making a forecast, and how far forward it must predict. TFT implementations commonly define input chunks and output chunks explicitly because known future inputs can extend into the prediction window.
+
+A practical gold design:
+
+Encoder window: 128 to 512 bars for intraday data
+
+Prediction window: 3, 6, 12, or 24 bars depending on your trading horizon
+
+Rolling window training: retrain using walk-forward blocks rather than one fixed historical split
+
+For example:
+
+5-minute bars
+
+256-bar encoder window
+
+12-bar forecast horizon
+That means the model sees about 21 hours of recent context and predicts the next hour of gold movement.
+
+Phase 6: TFT architecture specification
+The core TFT architecture should follow the professional structure described in the original paper: variable selection, gating, recurrent local processing, and interpretable self-attention for longer dependencies.
+
+Your architecture blueprint should include:
+
+| Component                   | Professional role in gold system                                |
+| --------------------------- | --------------------------------------------------------------- |
+| Variable Selection Networks | Dynamically choose important inputs as market drivers change    |
+| Gated Residual Networks     | Suppress noisy transformations and stabilize deep processing    |
+| LSTM encoder/decoder        | Capture recent sequential structure and local temporal dynamics |
+| Multi-head attention        | Find important earlier periods relevant to current forecast     |
+| Quantile output heads       | Produce downside, median, and upside forecasts                  |
+
+For your hardware:
+
+Keep hidden dimensions moderate, not oversized, because gold is one instrument and 32GB RAM is finite.
+
+Use GPU for training, but keep inference efficient enough that CPU can still coordinate live prediction if needed.
+
+A professional sizing range would be:
+
+hidden size: moderate
+
+attention heads: 4 to 8
+
+dropout: moderate
+
+quantiles: 0.1, 0.5, 0.9
+The goal is robustness, not “largest transformer possible.”
+
+Phase 7: Training framework
+Train TFT using quantile loss, often called pinball loss, because the model should learn to predict intervals, not just average values. Standard TFT references and examples use quantile forecasting as a core design principle.
+
+Your training workflow should be:
+
+Train on historical rolling windows.
+
+Validate on a forward period never seen in training.
+
+Test on a later out-of-sample block.
+
+Repeat this across multiple walk-forward folds.
+
+Compare performance against simpler baselines such as:
+
+naive persistence
+
+linear model
+
+LSTM
+
+your existing HMM/Wavelet ensemble filter
+
+Professional safeguards:
+
+early stopping
+
+learning-rate scheduling
+
+gradient clipping
+
+regularization/dropout
+
+feature normalization consistency
+
+For your setup, do not do endless brute-force tuning. Use your 5070 Ti for focused experiments, but prioritize disciplined validation over giant hyperparameter sweeps.
+
+Phase 8: Evaluation metrics
+Do not judge TFT only by forecast error. In a trading system, you need both forecast quality metrics and trading utility metrics. TFT literature focuses on forecasting quality such as quantile loss, while trading systems must also examine whether forecasts produce useful decisions after costs.
+
+Use these evaluation layers:
+
+Forecast metrics
+Quantile loss
+
+MAE/RMSE on median forecast
+
+Coverage calibration, meaning whether actual prices fall inside the 10–90 interval at the expected rate
+
+Trading metrics
+Directional accuracy
+
+Profit factor
+
+Sharpe ratio
+
+Max drawdown
+
+Average trade expectancy after spread/slippage
+
+Calibration metrics
+Narrow interval + wrong direction = dangerous model
+
+Wide interval + correct direction = low actionable value
+You want forecasts that are both accurate and calibrated.
+
+Phase 9: Decision-engine integration
+This is the most important implementation step. TFT should not fire trades alone. It should sit inside an ensemble decision layer with HMM and Wavelet.
+
+A professional gold-trading decision logic could be:
+
+| Layer       | Job                                                                  |
+| ----------- | -------------------------------------------------------------------- |
+| HMM         | Decide regime: trending, mean-reverting, unstable, calm              |
+| Wavelet     | Decide whether current move is structured trend or noisy fluctuation |
+| TFT         | Forecast next path and quantify uncertainty                          |
+| Risk engine | Decide position size, stop, take-profit, or no-trade                 |
+
+Example live logic:
+
+If HMM says bullish trend regime,
+
+and Wavelet says clean upward structure,
+
+and TFT median forecast is positive with narrow 10–90 band,
+then allow a strong long signal.
+
+If TFT is bullish but uncertainty is wide, keep the trade smaller or skip it. That is where TFT adds the most value: confidence-aware filtering, not raw prediction alone.
+
+Phase 10: Position sizing and risk
+Because TFT gives quantile outputs, you can tie risk management directly to forecast uncertainty. This is a major professional advantage over single-point models.
+
+Use TFT outputs for:
+
+dynamic size reduction when quantile band widens
+
+wider stops only when forecast dispersion justifies it
+
+avoiding trades in high-uncertainty windows such as major macro announcements
+
+adjusting reward-to-risk targets to forecast distribution rather than fixed ratios
+
+In simple terms:
+
+narrow band = model confident = normal or larger size
+
+wide band = model uncertain = smaller size or no trade
+
+That turns TFT into a forecasting-plus-risk tool instead of just a signal generator.
+
+Phase 11: Backtesting and stress testing
+A professional TFT pipeline must be backtested in a way that mirrors live deployment. Financial TFT experiments often include rolling prediction and backtesting because static train/test splits are not enough for market systems.
+
+Your backtest should include:
+
+walk-forward retraining
+
+realistic spread/slippage
+
+event-day stress scenarios
+
+regime breakdown analysis
+
+ablation studies:
+
+HMM only
+
+Wavelet only
+
+TFT only
+
+HMM + Wavelet
+
+HMM + Wavelet + TFT
+
+This lets you estimate whether TFT is truly additive or just making the system more complicated.
+
+Phase 12: Interpretability and monitoring
+One reason TFT is attractive is that it is more interpretable than many deep forecasting models because it provides variable importance and attention-based insight into temporal dependence.
+
+In production, monitor:
+
+which features TFT is emphasizing
+
+whether HMM features matter only in certain regimes
+
+whether Wavelet features dominate only in noisy markets
+
+whether attention repeatedly focuses on event windows or volatility shocks
+
+If the model starts relying on implausible variables, that is a warning sign of drift or overfitting.
+
+Phase 13: Live deployment architecture
+For your hardware, deploy TFT in two loops:
+
+Research/retraining loop
+Runs on GPU
+
+Overnight or scheduled retraining
+
+Walk-forward validation before promotion
+
+Model checkpointing and rollback
+
+Live inference loop
+Runs every new bar
+
+CPU orchestrates feature updates and data validation
+
+TFT model loads latest approved weights
+
+Output goes to ensemble/risk engine
+
+Kill switch blocks trades if inputs are stale or forecast uncertainty is extreme
+
+This division is important because your 5070 Ti is strong enough for retraining and experiments, while the 9800X3D is strong enough to manage low-latency live orchestration.
+
+Phase 14: Hardware allocation plan
+Here is the professional hardware split for your machine:
+
+| Hardware      | Best use in TFT gold system                                                                |
+| ------------- | ------------------------------------------------------------------------------------------ |
+| Ryzen 9800X3D | data ingestion, preprocessing, feature engineering, walk-forward logic, live orchestration |
+| RTX 5070 Ti   | TFT training, hyperparameter search, rolling retraining, large-batch inference experiments |
+| 32GB RAM      | active feature store, training batches, model checkpoints, backtest memory budget          |
+
+Practical guidance:
+
+Keep one main training dataset in memory, not too many duplicates.
+
+Use efficient formats and rolling windows.
+
+Archive older feature matrices instead of keeping everything hot in RAM.
+
+Prefer one well-designed TFT over many oversized variants.
+
+Phase 15: Production governance
+A professional TFT system for gold trading must include governance rules before it goes live:
+
+promote only models that beat baseline and existing ensemble in walk-forward tests
+
+quarantine models whose interval calibration breaks
+
+retrain on schedule, but not so frequently that you chase noise
+
+keep champion vs challenger versions
+
+maintain rollback to the last stable model
+
+document feature list, horizon definition, quantiles, training period, and live performance drift
+
+Final blueprint
+Your professional TFT stack for gold trading should be:
+
+Market data + macro data + HMM outputs + Wavelet outputs -> TFT multi-horizon quantile forecast -> ensemble decision layer -> risk-adjusted execution engine.
+
+The biggest professional mistake would be to use TFT as a flashy standalone predictor. The best professional use is to make TFT the forecast-confidence module inside your existing gold architecture, where it improves timing, filtering, and dynamic position sizing rather than replacing the rest of the stack.

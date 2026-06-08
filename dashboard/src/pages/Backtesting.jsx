@@ -62,7 +62,7 @@ export default function Backtesting() {
           <div>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Strategy</div>
             <select value={strategy} onChange={e => setStrategy(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-bright)', fontSize: 12 }}>
-              {['ensemble', 'wavelet', 'hmm', 'lstm', 'tft', 'genetic', 'nlp'].map(s => <option key={s} value={s}>{s}</option>)}
+              {['ensemble', 'wavelet_pro', 'hmm_pro', 'lstm', 'tft_pro'].map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           {[['Capital ($)', config.initial_capital, 'initial_capital'], ['Train (yr)', config.train_years, 'train_years'], ['Test (yr)', config.test_years, 'test_years']].map(([label, val, key]) => (

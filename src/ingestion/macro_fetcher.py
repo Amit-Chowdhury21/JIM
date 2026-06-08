@@ -155,14 +155,25 @@ class MacroFetcher:
                             fred_data[series_id] = data
                             logger.info(f"  ✅ {series_id} (API): {len(data)} observations")
                     except Exception as e:
-                        logger.error(f"  ❌ {series_id} (API): {e}")
+                        logger.warning(f"  ⚠️  {series_id} (API) failed: {e}. Falling back to CSV...")
+                        try:
+                            url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+                            df = pd.read_csv(url, index_col=0, parse_dates=True)
+                            if df is not None and not df.empty:
+                                df[series_id] = pd.to_numeric(df[series_id], errors='coerce')
+                                df = df.dropna()
+                                data = df[series_id]
+                                fred_data[series_id] = data
+                                logger.info(f"  ✅ {series_id} (CSV Fallback): {len(data)} observations")
+                        except Exception as e_csv:
+                            logger.error(f"  ❌ {series_id} (API & CSV) failed: {e_csv}")
                 return fred_data
             except ImportError:
                 logger.warning("fredapi not installed, falling back to public CSV method")
         else:
             logger.info("FRED API key not configured, using public CSV method")
             
-        # Fallback to public CSV method
+        # Fallback to public CSV method for everything
         for series_id in series_list:
             try:
                 url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"

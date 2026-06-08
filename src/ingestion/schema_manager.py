@@ -43,8 +43,7 @@ SCHEMAS: Dict[str, str] = {
             log_returns DOUBLE,
             spread DOUBLE,
             typical_price DOUBLE
-        ) timestamp(timestamp) PARTITION BY MONTH WAL
-            DEDUP UPSERT KEYS(timestamp, symbol);
+        ) timestamp(timestamp) PARTITION BY MONTH WAL;
     """,
 
     # Gold OHLCV — Hourly
@@ -61,8 +60,7 @@ SCHEMAS: Dict[str, str] = {
             log_returns DOUBLE,
             spread DOUBLE,
             typical_price DOUBLE
-        ) timestamp(timestamp) PARTITION BY WEEK WAL
-            DEDUP UPSERT KEYS(timestamp, symbol);
+        ) timestamp(timestamp) PARTITION BY WEEK WAL;
     """,
 
     # Gold OHLCV — Minute
@@ -79,8 +77,7 @@ SCHEMAS: Dict[str, str] = {
             log_returns DOUBLE,
             spread DOUBLE,
             typical_price DOUBLE
-        ) timestamp(timestamp) PARTITION BY DAY WAL
-            DEDUP UPSERT KEYS(timestamp, symbol);
+        ) timestamp(timestamp) PARTITION BY DAY WAL;
     """,
 
     # Gold Ticks (from Phase 1 spec)
@@ -108,8 +105,7 @@ SCHEMAS: Dict[str, str] = {
             close DOUBLE,
             volume LONG,
             returns DOUBLE
-        ) timestamp(timestamp) PARTITION BY MONTH WAL
-            DEDUP UPSERT KEYS(timestamp, symbol);
+        ) timestamp(timestamp) PARTITION BY MONTH WAL;
     """,
 
     # FRED economic data (long format)
@@ -118,8 +114,7 @@ SCHEMAS: Dict[str, str] = {
             timestamp TIMESTAMP,
             series_id SYMBOL,
             value DOUBLE
-        ) timestamp(timestamp) PARTITION BY YEAR WAL
-            DEDUP UPSERT KEYS(timestamp, series_id);
+        ) timestamp(timestamp) PARTITION BY YEAR WAL;
     """,
 
     # CFTC Commitments of Traders (weekly)
@@ -138,8 +133,7 @@ SCHEMAS: Dict[str, str] = {
             open_interest LONG,
             net_commercial LONG,
             net_noncommercial LONG
-        ) timestamp(timestamp) PARTITION BY YEAR WAL
-            DEDUP UPSERT KEYS(timestamp, contract);
+        ) timestamp(timestamp) PARTITION BY YEAR WAL;
     """,
 
     # News / alternative sentiment (daily)
@@ -154,8 +148,7 @@ SCHEMAS: Dict[str, str] = {
             neutral_count LONG,
             safe_haven_mentions LONG,
             fear_index DOUBLE
-        ) timestamp(timestamp) PARTITION BY MONTH WAL
-            DEDUP UPSERT KEYS(timestamp, source);
+        ) timestamp(timestamp) PARTITION BY MONTH WAL;
     """,
 
     # ETF flows
@@ -168,8 +161,7 @@ SCHEMAS: Dict[str, str] = {
             volume_ma20 DOUBLE,
             volume_ratio DOUBLE,
             flow_proxy DOUBLE
-        ) timestamp(timestamp) PARTITION BY MONTH WAL
-            DEDUP UPSERT KEYS(timestamp, symbol);
+        ) timestamp(timestamp) PARTITION BY MONTH WAL;
     """,
 }
 
@@ -199,21 +191,22 @@ class SchemaManager:
     def _exec_sql(self, sql: str) -> Optional[dict]:
         """Execute SQL via QuestDB HTTP API with retries for robust startup behavior."""
         import time
-        retries = 3
-        delay = 1.0
+        retries = 5  # Increased from 3 to handle longer QuestDB startup
+        delay = 0.5  # Start with shorter delay, exponential backoff will increase it
         last_exception = None
         
         for attempt in range(retries):
             try:
                 url = f"http://{self.host}:{self.http_port}/exec?query={urllib.parse.quote(sql.strip())}"
-                with urllib.request.urlopen(url, timeout=15) as resp:
+                # Increased timeout from 15s to 30s for complex table creation
+                with urllib.request.urlopen(url, timeout=30) as resp:
                     return json.loads(resp.read().decode())
             except Exception as e:
                 last_exception = e
                 if attempt < retries - 1:
-                    logger.warning(f"QuestDB SQL exec attempt {attempt+1}/{retries} failed ({e}), retrying in {delay}s...")
+                    logger.warning(f"QuestDB SQL exec attempt {attempt+1}/{retries} failed ({type(e).__name__}: {str(e)[:100]}), retrying in {delay:.1f}s...")
                     time.sleep(delay)
-                    delay *= 2
+                    delay = min(delay * 2, 8.0)  # Exponential backoff, cap at 8s
                     
         logger.error(f"QuestDB SQL exec failed after {retries} attempts: {last_exception}")
         return None
@@ -251,10 +244,26 @@ class SchemaManager:
         Returns:
             Dict of table_name → success boolean.
         """
+        import time
+        
+        # Wait for QuestDB to become available with exponential backoff
+        max_wait_time = 60  # Maximum 60 seconds to wait for QuestDB
+        wait_interval = 1.0
+        elapsed = 0
+        
+        logger.info("Waiting for QuestDB to become available...")
+        while not self.is_available() and elapsed < max_wait_time:
+            time.sleep(wait_interval)
+            elapsed += wait_interval
+            if elapsed % 5 == 0:
+                logger.info(f"  Still waiting for QuestDB... ({elapsed:.0f}s)")
+            wait_interval = min(wait_interval * 1.2, 5.0)  # Exponential backoff, cap at 5s
+        
         if not self.is_available():
-            logger.warning("QuestDB unavailable — skipping all table creation")
+            logger.error(f"QuestDB unavailable after {max_wait_time}s — aborting table creation")
             return {name: False for name in SCHEMAS}
 
+        logger.info("QuestDB is available, starting table creation...")
         results = {}
         for table_name in SCHEMAS:
             results[table_name] = self.ensure_table(table_name)

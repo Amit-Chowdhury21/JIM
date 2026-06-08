@@ -108,11 +108,9 @@ from src.paper_trading.live_inference import (
     fetch_live_gold_data,
     fetch_metalpriceapi_spot,
     run_wavelet,
-    run_wavelet_basic,
     run_hmm,
     run_lstm,
-    run_tft,
-    run_genetic,
+    run_tft_pro,
     run_ensemble,
 )
 from src.models.hmm_pro_gpu import run_hmm_pro_gpu
@@ -183,7 +181,7 @@ def print_dashboard(
         "ensemble": "ENS",         # Ensemble meta-learner
     }
     sig_parts = []
-    for m in ["wavelet_pro", "wavelet_basic", "hmm", "lstm", "tft", "genetic", "hmm_pro", "ensemble"]:
+    for m in ["wavelet_pro", "hmm_pro", "lstm", "tft_pro", "ensemble"]:
         s = signals.get(m, {})
         sig_val = s.get("signal", "?")[:1]
         conf = s.get("confidence", 0)
@@ -280,12 +278,6 @@ def run_single_cycle(
         wavelet_pro_res = fallback_sig.copy()
     
     try:
-        wavelet_basic_res = run_wavelet_basic(df)
-    except Exception as e:
-        logger.warning(f"Basic Wavelet failed: {e}")
-        wavelet_basic_res = fallback_sig.copy()
-    
-    try:
         hmm_res = run_hmm(df)
     except Exception as e:
         logger.warning(f"HMM v3 failed: {e}")
@@ -298,16 +290,10 @@ def run_single_cycle(
         lstm_res = fallback_sig.copy()
     
     try:
-        tft_res = run_tft(df)
+        tft_res = run_tft_pro(df)
     except Exception as e:
-        logger.warning(f"TFT failed: {e}")
+        logger.warning(f"TFT Pro failed: {e}")
         tft_res = fallback_sig.copy()
-    
-    try:
-        genetic_res = run_genetic(df)
-    except Exception as e:
-        logger.warning(f"Genetic failed: {e}")
-        genetic_res = fallback_sig.copy()
     
     try:
         hmm_pro_res = run_hmm_pro_gpu(df)
@@ -317,11 +303,9 @@ def run_single_cycle(
 
     individual = {
         "wavelet_pro": wavelet_pro_res,    # 6-level DWT + CWT (new)
-        "wavelet_basic": wavelet_basic_res, # 5-level DWT only (original)
         "hmm": hmm_res,
         "lstm": lstm_res,
-        "tft": tft_res,
-        "genetic": genetic_res,
+        "tft_pro": tft_res,
         "hmm_pro": hmm_pro_res,
     }
 

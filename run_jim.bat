@@ -3,8 +3,16 @@ echo ==================================================
 echo   Starting Mini-Medallion Project
 echo ==================================================
 
+:: Auto-update Gold 1m data (Binance 24/7)
+echo [1/5] Starting Continuous Gold 1m Updater...
+start "Gold Data Updater" cmd /k ".\.venv\Scripts\python.exe scripts/download_paxg_gold_1m.py --continuous"
+
+:: Auto-update all Asset 1m data (DXY, GVZ, Silver, TNX)
+echo [2/5] Starting Continuous Live Data Manager...
+start "Live Data Manager" cmd /k ".\.venv\Scripts\python.exe scripts/asset_1m_data_manager.py"
+
 :: Run the Data Ingestion & Feature Engineering Pipeline
-echo [1/3] Running Data Ingestion & Feature Pipeline...
+echo [3/5] Running Data Ingestion & Feature Pipeline...
 .\.venv\Scripts\python.exe scripts/run_pipeline.py --mode full
 if %ERRORLEVEL% NEQ 0 (
     echo.
@@ -13,14 +21,14 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 :: Start the Python backend API
-echo [2/3] Starting Backend API...
+echo [4/5] Starting Backend API...
 start "Mini-Medallion Backend" cmd /k ".\.venv\Scripts\python.exe main.py --mode api"
 
 :: Wait a few seconds for the backend to start up
 timeout /t 3 /nobreak >nul
 
 :: Start the React frontend
-echo [3/3] Starting Frontend Dashboard...
+echo [5/5] Starting Frontend Dashboard...
 start "Mini-Medallion Frontend" cmd /k "cd dashboard && npm run dev"
 
 echo.

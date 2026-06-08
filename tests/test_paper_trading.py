@@ -36,7 +36,7 @@ class TestPaperTradingConfig:
         assert config.symbol == "XAUUSD"
         assert config.kelly_fraction == 0.25
         assert config.max_position_pct == 0.10
-        assert config.min_confidence == 0.6
+        assert config.min_confidence == 0.75
     
     def test_custom_config(self):
         """Test custom configuration."""
@@ -63,7 +63,7 @@ class TestModelSignal:
         """Test signal creation."""
         now = datetime.now()
         signal = ModelSignal(
-            model_name="wavelet",
+            model_name="wavelet_pro",
             signal_type=SignalType.LONG,
             confidence=0.75,
             entry_price=2000.0,
@@ -71,7 +71,7 @@ class TestModelSignal:
             timestamp=now,
             regime="NORMAL",
         )
-        assert signal.model_name == "wavelet"
+        assert signal.model_name == "wavelet_pro"
         assert signal.signal_type == SignalType.LONG
         assert signal.confidence == 0.75
         assert signal.entry_price == 2000.0
@@ -405,15 +405,15 @@ class TestIntegration:
             
             # Low confidence signal should be rejected
             signal = ModelSignal(
-                model_name="wavelet",
+                model_name="wavelet_pro",
                 signal_type=SignalType.LONG,
-                confidence=0.55,  # Below 0.6 threshold
+                confidence=0.55,  # Below 0.75 threshold
                 entry_price=2000.0,
                 current_price=2000.0,
                 timestamp=datetime.now(),
             )
             
-            result = engine.process_signal("wavelet", signal)
+            result = engine.process_signal("wavelet_pro", signal)
             assert result is None  # Should not execute
     
     def test_position_closing_on_opposite_signal(self):

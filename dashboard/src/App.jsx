@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { LayoutDashboard, BrainCircuit, ShieldCheck, Wallet, Server, Zap, GitBranch, FlaskConical, Activity, FileText, Database, Menu, X, ArrowRightLeft, TrendingUp, Radio, Grid3X3 } from 'lucide-react';
+import { LayoutDashboard, BrainCircuit, ShieldCheck, Wallet, Server, Zap, GitBranch, FlaskConical, Activity, FileText, Database, Menu, X, ArrowRightLeft, TrendingUp, Radio, Grid3X3, GitMerge, AlertCircle } from 'lucide-react';
 import Overview from './pages/Overview';
 import Models from './pages/Models';
 import RiskManagement from './pages/RiskManagement';
@@ -13,6 +13,11 @@ import PredictionLog from './pages/PredictionLog';
 import GoldSilverRatio from './pages/GoldSilverRatio';
 import CorrelationMatrix from './pages/CorrelationMatrix';
 import LiveTrading from './pages/LiveTrading';
+import EnsembleMetrics from './pages/EnsembleMetrics';
+import RegimeMonitor from './pages/RegimeMonitor';
+import ModelPerformance from './pages/ModelPerformance';
+import PositionSizing from './pages/PositionSizing';
+import Governance from './pages/Governance';
 
 const navItems = [
   { section: 'Trading' },
@@ -23,6 +28,12 @@ const navItems = [
   { path: '/correlation', icon: Grid3X3, label: 'Correlation Matrix' },
   { path: '/gs-ratio', icon: ArrowRightLeft, label: 'G/S Ratio' },
   { path: '/prediction-log', icon: Database, label: 'Prediction Log' },
+  { section: 'Ensemble Pipeline' },
+  { path: '/ensemble/metrics', icon: GitMerge, label: 'Ensemble Metrics' },
+  { path: '/ensemble/regime', icon: TrendingUp, label: 'Regime Monitor' },
+  { path: '/ensemble/performance', icon: BrainCircuit, label: 'Model Performance' },
+  { path: '/ensemble/sizing', icon: Wallet, label: 'Position Sizing' },
+  { path: '/ensemble/governance', icon: AlertCircle, label: 'Governance' },
   { section: 'Management' },
   { path: '/risk', icon: ShieldCheck, label: 'Risk Management' },
   { path: '/portfolio', icon: Wallet, label: 'Portfolio' },
@@ -93,21 +104,9 @@ function DashboardShell() {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="status-badge">
-            <span className="status-dot online" />
-            <span>System Online — v3.0.0</span>
-          </div>
-          <div className="status-badge" style={{ marginTop: 6 }}>
-            <Zap size={12} style={{ color: 'var(--gold-primary)' }} />
-            <span>RTX 3050 • CUDA 12.1</span>
-          </div>
-          <div className="status-badge" style={{ marginTop: 6 }}>
-            <GitBranch size={12} style={{ color: 'var(--green)' }} />
-            <span>Phase 7 • 100% Complete</span>
-          </div>
-          <div className="status-badge" style={{ marginTop: 6 }}>
-            <Activity size={12} style={{ color: 'var(--cyan)' }} />
-            <span>60/60 Tests • 200+ Unit Tests</span>
+          <div className="system-status">
+            <div className="status-item"><span className="status-dot green"></span>System Online — v3.0.0</div>
+            <div className="status-item"><Zap size={14} style={{color:'var(--gold)'}}/> <span>RTX 5070 Ti • CUDA 12.1</span></div>
           </div>
         </div>
       </aside>
@@ -128,6 +127,12 @@ function DashboardShell() {
           <Route path="/prediction-log" element={<PredictionLog />} />
           <Route path="/execution" element={<Execution />} />
           <Route path="/infra" element={<Infrastructure />} />
+          {/* Ensemble Pipeline Routes */}
+          <Route path="/ensemble/metrics" element={<EnsembleMetrics />} />
+          <Route path="/ensemble/regime" element={<RegimeMonitor />} />
+          <Route path="/ensemble/performance" element={<ModelPerformance />} />
+          <Route path="/ensemble/sizing" element={<PositionSizing />} />
+          <Route path="/ensemble/governance" element={<Governance />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>

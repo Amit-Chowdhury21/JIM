@@ -29,6 +29,7 @@ import json
 
 # Import paper trading modules
 try:
+    from src.paper_trading.multi_engine import MultiEngineOrchestrator
     from src.paper_trading.engine import (
         PaperTradingEngine,
         PaperTradingConfig,
@@ -89,6 +90,7 @@ class PaperTradingStatusResponse(BaseModel):
     portfolio: Dict[str, Any]
     trading: Dict[str, Any]
     models: Dict[str, Any]
+    silver: Optional[Dict[str, Any]] = None
 
 
 class PerformanceMetricsResponse(BaseModel):
@@ -169,6 +171,7 @@ class ConfigUpdateRequest(BaseModel):
 # GLOBAL STATE
 # ============================================================================
 
+_orchestrator: Optional['MultiEngineOrchestrator'] = None
 _paper_trading_engine: Optional['PaperTradingEngine'] = None
 _paper_trading_config: Optional['PaperTradingConfig'] = None
 _risk_manager: Optional['RiskManager'] = None
@@ -224,7 +227,7 @@ class TradingQueueWorker:
                     signal_type = item.signal.signal_type
                     if _risk_manager is not None and signal_type in (SignalType.LONG, SignalType.SHORT):
                         can_trade, reason = _risk_manager.check_circuit_breakers(
-                            portfolio_value=_paper_trading_engine._create_portfolio_snapshot().total_value,
+                            portfolio_value=_orchestrator.engines['v2.1']._create_portfolio_snapshot().total_value,
                             ensemble_conf=item.signal.confidence
                         )
                         if not can_trade:
@@ -234,7 +237,7 @@ class TradingQueueWorker:
                             continue
 
                     # 2. Process signal through engine
-                    trade = _paper_trading_engine.process_signal(item.model_name, item.signal)
+                    trade = _orchestrator.process_signal(item.model_name, item.signal)
                     if trade is not None and _risk_manager is not None:
                         _risk_manager.risk_state.bars_since_last_trade = 0
                     item.future.set_result((trade, "OK"))
@@ -303,7 +306,7 @@ async def start_paper_trading(request: Request, start_request: PaperTradingStart
     Initializes the engine with specified capital, risk limits, and signal
     configuration. Returns initialization details on success.
     """
-    global _paper_trading_engine, _paper_trading_config, _risk_manager, _trading_queue_worker
+    global _paper_trading_engine, _paper_trading_config, _risk_manager, _trading_queue_worker, _orchestrator
     
     if not PAPER_TRADING_AVAILABLE or PaperTradingConfig is None or PaperTradingEngine is None or RiskManager is None:
         raise HTTPException(status_code=500, detail="Paper trading module not available")
@@ -325,7 +328,8 @@ async def start_paper_trading(request: Request, start_request: PaperTradingStart
         )
         
         # Initialize engine
-        _paper_trading_engine = PaperTradingEngine(_paper_trading_config)
+        _orchestrator = MultiEngineOrchestrator(_paper_trading_config)
+        _paper_trading_engine = _orchestrator.engines['v2.1']
         
         # Initialize risk manager with config dict instead of deprecated RiskLimits
         risk_cfg = {
@@ -344,7 +348,7 @@ async def start_paper_trading(request: Request, start_request: PaperTradingStart
         _risk_manager = RiskManager(risk_cfg)
         
         # Start engine
-        result = _paper_trading_engine.start()
+        result = _orchestrator.start()
 
         # Start queue worker
         _trading_queue_worker = TradingQueueWorker()
@@ -385,8 +389,8 @@ async def start_paper_trading(request: Request, start_request: PaperTradingStart
         raise HTTPException(status_code=500, detail=f"Failed to start: {str(e)}")
 
 
-@router.get("/status", response_model=PaperTradingStatusResponse)
-async def get_paper_trading_status() -> PaperTradingStatusResponse:
+@router.get("/status", response_model=Dict[str, Any])
+async def get_paper_trading_status() -> Dict[str, Any]:
     """
     Get current paper trading status including portfolio, trading stats,
     and per-model signal information.
@@ -400,30 +404,22 @@ async def get_paper_trading_status() -> PaperTradingStatusResponse:
         )
     
     try:
-        status_dict = _paper_trading_engine.get_status()
+        status_dict = _orchestrator.get_status()
         
         # Calculate uptime
         uptime = None
         if _paper_trading_engine.started_at:
             uptime = (datetime.now() - _paper_trading_engine.started_at).total_seconds()
         
-        return PaperTradingStatusResponse(
-            status=status_dict["status"],
-            started_at=status_dict["started_at"],
-            current_time=status_dict["current_time"],
-            uptime_seconds=uptime,
-            portfolio=status_dict["portfolio"],
-            trading=status_dict["trading"],
-            models=status_dict["models"],
-        )
+        return status_dict
     
     except Exception as e:
         logger.error(f"Failed to get status: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
 
 
-@router.get("/performance", response_model=PerformanceMetricsResponse)
-async def get_performance_metrics() -> PerformanceMetricsResponse:
+@router.get("/performance", response_model=Dict[str, Any])
+async def get_performance_metrics() -> Dict[str, Any]:
     """
     Get performance metrics including P&L breakdown, Sharpe ratio,
     drawdown, and win rate.
@@ -434,24 +430,26 @@ async def get_performance_metrics() -> PerformanceMetricsResponse:
         raise HTTPException(status_code=404, detail="Paper trading engine not initialized")
     
     try:
-        snapshot = _paper_trading_engine._create_portfolio_snapshot()
+        snapshots = _orchestrator._create_portfolio_snapshots()
         
-        return PerformanceMetricsResponse(
-            total_value=snapshot.total_value,
-            cash=snapshot.cash,
-            position_quantity=snapshot.position_quantity,
-            position_value=snapshot.position_value,
-            pnl_total=snapshot.pnl_total,
-            pnl_realized=snapshot.pnl_realized,
-            pnl_unrealized=snapshot.pnl_unrealized,
-            pnl_daily=snapshot.daily_pnl,
-            return_pct=snapshot.return_pct,
-            sharpe_ratio=snapshot.sharpe_ratio,
-            max_drawdown=snapshot.max_drawdown,
-            win_rate=snapshot.win_rate,
-            num_trades=snapshot.num_trades,
-            daily_trades=len(_paper_trading_engine.daily_trades),
-        )
+        return {
+            name: {
+                "total_value": snap.total_value,
+                "cash": snap.cash,
+                "position_quantity": snap.position_quantity,
+                "position_value": snap.position_value,
+                "pnl_total": snap.pnl_total,
+                "pnl_realized": snap.pnl_realized,
+                "pnl_unrealized": snap.pnl_unrealized,
+                "pnl_daily": snap.daily_pnl,
+                "return_pct": snap.return_pct,
+                "sharpe_ratio": snap.sharpe_ratio,
+                "max_drawdown": snap.max_drawdown,
+                "win_rate": snap.win_rate,
+                "num_trades": snap.num_trades,
+                "daily_trades": len(_orchestrator.engines[name].daily_trades),
+            } for name, snap in snapshots.items()
+        }
     
     except Exception as e:
         logger.error(f"Failed to get performance metrics: {str(e)}")
@@ -471,7 +469,7 @@ async def stop_paper_trading(request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Paper trading engine not initialized")
     
     try:
-        result = _paper_trading_engine.stop()
+        result = _orchestrator.stop()
 
         # Stop queue worker
         if _trading_queue_worker is not None:
@@ -511,13 +509,16 @@ async def get_trade_history(
     """
     Get trade history with pagination and optional status filtering.
     """
-    global _paper_trading_engine
+    global _orchestrator
     
-    if _paper_trading_engine is None:
+    if _orchestrator is None:
         raise HTTPException(status_code=404, detail="Paper trading engine not initialized")
     
     try:
-        trades = _paper_trading_engine.trades
+        trades = []
+        for engine in _orchestrator.engines.values():
+            trades.extend(engine.trades)
+        trades.sort(key=lambda t: t.entry_time, reverse=True)
         
         # Apply status filter
         if status_filter and status_filter != "ALL":
@@ -553,8 +554,8 @@ async def get_trade_history(
         raise HTTPException(status_code=500, detail=f"Failed to get trades: {str(e)}")
 
 
-@router.get("/portfolio", response_model=PortfolioSnapshotResponse)
-async def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
+@router.get("/portfolio", response_model=Dict[str, Any])
+async def get_portfolio_snapshot() -> Dict[str, Any]:
     """
     Get current portfolio snapshot with mark-to-market valuation.
     """
@@ -641,7 +642,7 @@ async def inject_signal(request: Request, signal_request: SignalInjectionRequest
         raise HTTPException(status_code=409, detail="Paper trading engine is not running")
     
     # Validate model name
-    valid_models = ["wavelet", "hmm", "lstm", "tft", "genetic", "hmm_pro", "ensemble"]
+    valid_models = ["wavelet_pro", "hmm_pro", "lstm", "tft_pro", "tft_pro_max", "ensemble"]
     if signal_request.model_name not in valid_models:
         raise HTTPException(
             status_code=400,
@@ -676,7 +677,7 @@ async def inject_signal(request: Request, signal_request: SignalInjectionRequest
         if is_testing:
             if _risk_manager is not None and signal_type in (SignalType.LONG, SignalType.SHORT):
                 can_trade, reason = _risk_manager.check_circuit_breakers(
-                    portfolio_value=_paper_trading_engine._create_portfolio_snapshot().total_value,
+                    portfolio_value=_orchestrator.engines['v2.1']._create_portfolio_snapshot().total_value,
                     ensemble_conf=signal_request.confidence
                 )
                 if not can_trade:
@@ -687,7 +688,7 @@ async def inject_signal(request: Request, signal_request: SignalInjectionRequest
                         "trade_executed": False, 
                         "reason": f"Blocked by RiskManager: {reason}"
                     }
-            trade = _paper_trading_engine.process_signal(signal_request.model_name, signal)
+            trade = _orchestrator.process_signal(signal_request.model_name, signal)
             if trade is not None and _risk_manager is not None:
                 _risk_manager.risk_state.bars_since_last_trade = 0
         else:
@@ -815,7 +816,7 @@ async def reset_daily_counters() -> Dict[str, Any]:
         
         # Reset risk manager daily state
         if _risk_manager:
-            current_equity = _paper_trading_engine._create_portfolio_snapshot().total_value
+            current_equity = _orchestrator.engines['v2.1']._create_portfolio_snapshot().total_value
             _risk_manager.reset_daily()
         
         logger.info(f"Daily counters reset. Previous daily P&L: ${previous_daily_pnl:.2f}")
@@ -844,7 +845,7 @@ async def reset_circuit_breakers() -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Paper trading engine not initialized")
         
     try:
-        current_equity = _paper_trading_engine._create_portfolio_snapshot().total_value
+        current_equity = _orchestrator.engines['v2.1']._create_portfolio_snapshot().total_value
         
         # 1. Reset Risk Manager
         _risk_manager.reset_circuit_breakers(current_equity)
@@ -1015,6 +1016,8 @@ def get_correlation_matrix(limit: int = Query(default=500, ge=10, le=5000)):
             "hmm": "hmm_pro_signal",
             "lstm": "lstm_signal",
             "tft": "tft_signal",
+            "tft_pro": "tft_pro_signal",
+            "tft_pro_max": "tft_pro_max_signal",
             "genetic": "genetic_signal",
             "ensemble": "ensemble_signal"
         }
@@ -1131,9 +1134,36 @@ def save_prediction_logs(logs: List[Dict[str, Any]] = None):
         if not logs:
             return {"status": "ok", "records_saved": 0, "message": "No logs to save"}
         
-        # Create session file with timestamp
+        # Create hour-wise session file
+        from datetime import timedelta
         now = datetime.now()
-        session_id = now.strftime("%d%m%Y_%H%M%S")
+        hour_start = now.replace(minute=0, second=0, microsecond=0)
+        hour_end = hour_start + timedelta(hours=1)
+        
+        # Filter logs to only include data for the current hour
+        filtered_logs = []
+        for log in logs:
+            try:
+                # Handle possible 'Z' or timezone info if present, though typically it's 'YYYY-MM-DDTHH:MM:SS'
+                ts_str = log.get("timestamp", "").replace("Z", "+00:00")
+                log_time = datetime.fromisoformat(ts_str)
+                # If log_time is timezone aware and hour_start is naive, we need to make hour_start aware
+                if log_time.tzinfo is not None and hour_start.tzinfo is None:
+                    # Strip timezone for comparison assuming local time is intended, or use aware
+                    log_time = log_time.replace(tzinfo=None)
+                    
+                if hour_start <= log_time < hour_end:
+                    filtered_logs.append(log)
+            except (ValueError, TypeError):
+                pass
+                
+        logs = filtered_logs
+        
+        if not logs:
+            return {"status": "ok", "records_saved": 0, "message": "No logs available for current hour"}
+        
+        # Format: PredictionLogs_DDMMYYYY_HH00_to_HH00.csv
+        session_id = f"{hour_start.strftime('%d%m%Y_%H00')}_to_{hour_end.strftime('%H00')}"
         filename = f"PredictionLogs_{session_id}.csv"
         filepath = os.path.join(LOGS_DIR, filename)
         
@@ -1234,7 +1264,7 @@ async def websocket_endpoint(websocket: WebSocket):
             except asyncio.TimeoutError:
                 # Send periodic snapshot if engine is running
                 if _paper_trading_engine and _paper_trading_engine.status == "RUNNING":
-                    snapshot = _paper_trading_engine._create_portfolio_snapshot()
+                    snapshots = _orchestrator._create_portfolio_snapshots()
                     await websocket.send_text(json.dumps({
                         "event": "portfolio_update",
                         "data": {
@@ -1256,3 +1286,39 @@ async def websocket_endpoint(websocket: WebSocket):
         if websocket in _websocket_clients:
             _websocket_clients.remove(websocket)
         logger.info(f"WebSocket clients remaining: {len(_websocket_clients)}")
+
+@router.post("/enable-auto-trade")
+async def enable_auto_trade():
+    """Enable automatic trading execution for LSTM models."""
+    global _orchestrator
+    if _orchestrator is None:
+        raise HTTPException(status_code=400, detail="Orchestrator not started")
+    _orchestrator.auto_trade_enabled = True
+    return {"status": "success", "message": "Auto trading enabled"}
+
+@router.get("/lstm-logs")
+async def get_lstm_logs(lines: int = 20):
+    """Fetch the most recent lines from the current hour's LSTM log CSV."""
+    import os
+    import pytz
+    log_dir = r"E:\PRO\JIMxNik\LSTMLogs"
+    ist = pytz.timezone("Asia/Kolkata")
+    now_ist = datetime.now(pytz.utc).astimezone(ist)
+    filename = f"lstm_logs_{now_ist.strftime('%Y%m%d_%H')}.csv"
+    filepath = os.path.join(log_dir, filename)
+    
+    if not os.path.exists(filepath):
+        return {"logs": ["No logs generated for the current hour yet."]}
+        
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+            
+        header = all_lines[0] if len(all_lines) > 0 else ""
+        data_lines = all_lines[1:] if len(all_lines) > 1 else []
+        recent_lines = data_lines[-lines:] if len(data_lines) > 0 else []
+        
+        return {"logs": [header] + recent_lines}
+    except Exception as e:
+        logger.error(f"Failed to read LSTM Logs: {e}")
+        return {"logs": [f"Error reading logs: {e}"]}

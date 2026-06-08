@@ -1,0 +1,428 @@
+A professional ensemble for gold trading should use HMM Pro to identify regime, Wavelet Pro to separate trend/cycle/noise, LSTM to model medium-term sequential behavior, and TFT to produce multi-horizon probabilistic forecasts, with a meta-layer that changes model weights by regime rather than averaging everything equally. Research on TFT and ensemble forecasting supports combining diverse models and using performance-aware weighting, while the TFT framework itself is designed for mixed inputs and multi-horizon forecasting.
+
+Phase 1: System objective
+Define the ensemble’s job clearly: it is not four models voting on direction, but a regime-aware alpha engine for XAU/USD that changes emphasis depending on whether the market is in Growth, Normal, or Crisis conditions. A dynamic ensemble is preferable because financial models often work differently across market states, and performance-based weighting is commonly used to emphasize the right model under the right conditions.
+
+Your hardware is suitable for this design:
+
+Ryzen 9800X3D for feature engineering, HMM inference, Wavelet decomposition, live orchestration, and walk-forward backtests.
+
+RTX 5070 Ti for training LSTM and TFT, running retraining jobs, and parallel validation experiments.
+
+32GB RAM for one-instrument professional research, provided you keep feature stores and training windows controlled.
+
+Phase 2: Role definition
+Each model must have a different professional responsibility, otherwise the ensemble becomes redundant.
+
+| Model       | Primary role in gold system                                                |
+| ----------- | -------------------------------------------------------------------------- |
+| Wavelet Pro | Denoise price, extract trend/cycle/noise, quantify structural clarity      |
+| HMM Pro     | Identify latent market state and transition probability                    |
+| LSTM        | Learn medium-horizon sequential behavior and persistence/reversal patterns |
+| TFT         | Produce multi-horizon quantile forecasts and confidence bands              |
+
+This structure is strong because HMM is regime-centric, Wavelet is decomposition-centric, LSTM is memory-centric, and TFT is forecast-plus-uncertainty-centric, so the ensemble is diverse rather than repetitive.
+
+Phase 3: Regime framework
+Before assigning weights, define the three operating regimes in a measurable way.
+
+Growth regime
+Gold behaves in a more orderly, opportunity-rich environment, often with cleaner trends, lower panic distortion, and more stable macro transmission. This regime should favor models that exploit smooth structure and medium-horizon continuation.
+
+Normal regime
+Gold is balanced, mixed, and often alternates between range behavior and moderate trend behavior. This regime should give relatively balanced weights and rely heavily on ensemble confirmation rather than one dominant model.
+
+Crisis regime
+Gold becomes driven by macro shocks, liquidity stress, flight-to-safety flows, and regime breaks. In crisis conditions, regime inference, uncertainty forecasting, and noise separation become more important than ordinary sequence fitting.
+
+Regime classification inputs
+Use a top-level macro regime engine based on:
+
+realized volatility percentile,
+
+VIX level/change,
+
+DXY shock intensity,
+
+rates shock intensity,
+
+gold gap frequency,
+
+spread widening,
+
+HMM regime probabilities,
+
+Wavelet noise/entropy spike.
+This master regime engine decides whether the system is currently in Growth, Normal, or Crisis.
+
+Phase 4: Data pipeline
+Build a unified dataset for all four models using synchronized timestamps and a single feature governance policy. TFT is explicitly designed for mixed inputs such as historical observations, known future inputs, and static covariates, which makes it a natural top consumer of your unified feature set.
+
+Core market inputs
+XAU/USD OHLCV
+
+log returns
+
+ATR
+
+realized volatility
+
+spread/slippage proxy
+
+session range and breakout measures
+
+Macro inputs
+DXY
+
+U.S. 2Y/10Y yields
+
+real yield proxy
+
+VIX
+
+oil and silver relative move
+
+Time/context inputs
+hour of day
+
+weekday
+
+London open flag
+
+New York open flag
+
+event proximity flags for CPI, NFP, FOMC
+
+Model-derived inputs
+HMM probabilities
+
+Wavelet trend/cycle/noise outputs
+
+prior LSTM forecast error
+
+prior TFT quantile spread
+
+All models should read from the same cleaned and validated master feature layer, even if each model consumes only a subset.
+
+Phase 5: Preprocessing standards
+Use one preprocessing standard across the ensemble so model outputs remain comparable.
+
+Wavelet Pro receives raw or lightly transformed prices plus volatility context.
+
+HMM Pro receives stationary features such as log returns, volatility states, and filtered features.
+
+LSTM receives normalized rolling sequences.
+
+TFT receives grouped inputs: observed past, known future, and static context.
+
+Professional preprocessing steps:
+
+timestamp synchronization,
+
+missing-value policy,
+
+outlier tagging instead of blind deletion,
+
+rolling normalization by training window only,
+
+event labeling,
+
+latency-safe live feature generation.
+
+Phase 6: Wavelet Pro sub-pipeline
+Wavelet Pro should be your signal cleaner and structural interpreter. Its job is to decompose gold prices into long-trend components, cycle components, and high-frequency noise, then output a cleaned structural signal to the ensemble. Commodity and market-cycle analyses often use wavelet decomposition because it separates information across scales.
+
+Wavelet Pro outputs should include:
+
+denoised return,
+
+trend strength,
+
+cycle oscillator,
+
+noise ratio,
+
+wavelet entropy,
+
+structural confidence score.
+
+Best regime usage
+Growth: high value because smooth trends and cleaner cycles are easier to extract.
+
+Normal: medium value because mixed structure still benefits from denoising.
+
+Crisis: lower directional value, but still important for identifying when apparent price moves are mostly noise.
+
+Phase 7: HMM Pro sub-pipeline
+HMM Pro should be the regime specialist. It maps current observed features into hidden market states and transition probabilities, allowing the ensemble to know whether the environment is trending, reverting, unstable, or shock-prone. HMM is widely used as a regime tool in financial time-series settings because it is good at latent-state inference rather than raw point prediction.
+
+HMM Pro outputs should include:
+
+most likely latent state,
+
+full state probability vector,
+
+transition probability to next state,
+
+regime persistence score,
+
+instability score.
+
+Best regime usage
+Growth: moderate value, mostly as a filter.
+
+Normal: high value because regime shifts matter most in mixed markets.
+
+Crisis: very high value because rapid state changes and persistence probabilities become crucial.
+
+Phase 8: LSTM sub-pipeline
+LSTM should be your sequence behavior specialist. It is useful for learning medium-horizon momentum, reversal sequences, and intraday continuation structures that are harder to capture with simpler state models. LSTM remains a common financial time-series model because it can learn sequential dependencies across rolling windows.
+
+LSTM outputs should include:
+
+next-horizon expected return,
+
+sequence confidence,
+
+momentum persistence score,
+
+reversal probability,
+
+forecast residual trend.
+
+Best regime usage
+Growth: high value because persistent sequential patterns are more likely to hold.
+
+Normal: medium value because sequence reliability is mixed.
+
+Crisis: lower value because shock-driven moves often break ordinary memory patterns.
+
+Phase 9: TFT sub-pipeline
+TFT should be your multi-horizon planner and confidence estimator. TFT combines recurrent layers, interpretable self-attention, variable selection, and gating to produce multi-step forecasts with quantile ranges, which makes it ideal for assigning risk-adjusted conviction rather than only direction.
+
+TFT outputs should include:
+
+1-step, short-horizon, and medium-horizon forecast,
+
+quantiles such as 10th, 50th, 90th,
+
+uncertainty width,
+
+feature importance snapshot,
+
+horizon consistency score.
+
+Best regime usage
+Growth: medium-high value because future path is more forecastable.
+
+Normal: high value because mixed inputs and multi-horizon planning matter.
+
+Crisis: very high value for uncertainty estimation, even if directional accuracy falls.
+
+Phase 10: Standardized output layer
+To combine the models, every model must output the same professional signal schema:
+
+| Output field             | Meaning                                                     |
+| ------------------------ | ----------------------------------------------------------- |
+| Direction score          | bullish to bearish standardized score                       |
+| Confidence score         | how strongly the model trusts its forecast                  |
+| Horizon tag              | short, medium, or long emphasis                             |
+| Regime suitability score | how well that model historically performs in current regime |
+| Risk warning             | special warning flag such as high noise or unstable state   |
+
+Convert all model outputs into a normalized range, such as 
+−
+1
+−1 to 
++
+1
++1 for direction and 0 to 1 for confidence. This allows a proper weighted meta-ensemble instead of ad hoc mixing.
+
+Phase 11: Regime-based weighting engine
+This is the core of your request. Assign base weights by macro regime, then adjust them dynamically based on recent model performance and confidence. Performance-based dynamic weighting is a common ensemble principle, especially when different models dominate in different conditions.
+
+Base weights by regime
+
+| Regime | Wavelet Pro | HMM Pro | LSTM | TFT |
+| ------ | ----------- | ------- | ---- | --- |
+| Growth | 30%         | 15%     | 30%  | 25% |
+| Normal | 25%         | 25%     | 20%  | 30% |
+| Crisis | 15%         | 35%     | 10%  | 40% |
+
+Why these weights
+Growth regime: Wavelet Pro and LSTM get the highest weights because cleaner trends, structure, and continuation patterns are more usable, while HMM remains useful as a filter and TFT adds horizon planning.
+
+Normal regime: The system should be balanced, with TFT slightly leading because mixed-input multi-horizon forecasting is especially useful when markets are neither clearly smooth nor clearly broken. HMM and Wavelet stay important because regime and structure still matter.
+
+Crisis regime: HMM Pro and TFT dominate because crisis markets are driven by abrupt regime changes and extreme uncertainty; HMM helps detect latent state transitions, while TFT’s quantile ranges and attention over important stress periods help more than plain sequence memory. LSTM gets the lowest base weight because sequential assumptions tend to fail more often during shocks.
+
+Phase 12: Dynamic weight adjustment
+Do not keep fixed weights inside each regime. Instead, start from the base table and adjust using four multipliers:
+
+Recent model performance multiplier
+
+last 20 trades or rolling out-of-sample block
+
+Sharpe, hit rate, calibration, and drawdown contribution
+
+Confidence multiplier
+
+Wavelet structural clarity
+
+HMM state certainty
+
+LSTM forecast confidence
+
+TFT quantile narrowness
+
+Disagreement penalty
+
+if one model strongly disagrees with the other three, reduce its live weight
+
+Regime suitability multiplier
+
+each model has a historical scorecard by regime
+For example, if LSTM historically underperforms in Crisis, cap it even when recent signals look strong.
+
+Example live formula
+Professional ensemble score should conceptually be:
+
+Final Weight = Base Regime Weight × Performance Multiplier × Confidence Multiplier × Suitability Multiplier
+
+Then normalize all weights so total weight remains 100%.
+
+Phase 13: Meta-decision layer
+After weights are computed, the system should produce:
+
+final direction score,
+
+final confidence score,
+
+recommended position size,
+
+no-trade flag,
+
+stop/target class.
+
+Decision logic example
+If final score is strongly bullish and confidence is high, allow full-size long.
+
+If bullish but driven only by one model with weak confirmation, reduce size.
+
+If Crisis regime is active and TFT uncertainty is very wide, block new trades even if direction is positive.
+
+This avoids the common mistake of letting every model trigger trades independently.
+
+Phase 14: Position sizing by regime
+Risk should also change by regime.
+
+| Regime | Typical position sizing policy                    |
+| ------ | ------------------------------------------------- |
+| Growth | normal to moderately aggressive                   |
+| Normal | balanced and confirmation-driven                  |
+| Crisis | defensive, smaller size, stricter no-trade filter |
+
+In practice:
+
+Growth: allow full size if Wavelet + LSTM + TFT align.
+
+Normal: require at least two strong models and acceptable HMM stability.
+
+Crisis: require HMM and TFT agreement plus controlled uncertainty; otherwise trade small or stay flat.
+
+Phase 15: Training and retraining schedule
+Train each model separately, then train the ensemble logic on top.
+
+Model training order
+Wavelet Pro calibration
+
+HMM Pro state estimation
+
+LSTM rolling training
+
+TFT rolling training
+
+Meta-ensemble validation
+
+Retraining cadence
+Wavelet Pro: parameter review periodically, not too frequently
+
+HMM Pro: state re-estimation weekly or after structural changes
+
+LSTM: retrain more frequently because sequential patterns drift
+
+TFT: retrain on scheduled rolling windows with validation gate
+
+Ensemble weights: update more often than full model retraining
+
+Use the GPU primarily for LSTM and TFT retraining, and the CPU for live inference orchestration and HMM/Wavelet computation.
+
+Phase 16: Validation and ablation
+A professional ensemble must prove that every part adds value.
+
+Test these systems separately:
+
+Wavelet Pro only
+
+HMM Pro only
+
+LSTM only
+
+TFT only
+
+Wavelet + HMM
+
+Wavelet + HMM + LSTM
+
+Full ensemble
+
+Full ensemble without regime weighting
+
+Full ensemble with regime weighting
+
+This tells you whether regime-based weighting genuinely improves Sharpe, drawdown, and trade quality instead of just adding complexity. Ensemble methods are often strongest when weighting is adaptive rather than static.
+
+Phase 17: Monitoring and governance
+In production, monitor:
+
+current macro regime,
+
+live model weights,
+
+model disagreement level,
+
+confidence drift,
+
+calibration drift for TFT,
+
+transition instability for HMM,
+
+noise spikes for Wavelet,
+
+residual drift for LSTM.
+
+Also implement:
+
+champion vs challenger ensemble,
+
+fallback to reduced ensemble if one model fails,
+
+forced weight cap if a model degrades sharply,
+
+no-trade state on stale data or extreme disagreement.
+
+Final professional blueprint
+Your professional gold ensemble should run like this:
+
+Market and macro data -> preprocessing and feature layer -> Wavelet Pro, HMM Pro, LSTM, TFT -> standardized outputs -> regime engine (Growth / Normal / Crisis) -> regime-based weighting -> ensemble score -> risk sizing -> execution engine.
+
+If you want a practical starting point, use these base regime weights:
+
+| Regime | Wavelet Pro | HMM Pro | LSTM | TFT |
+| ------ | ----------- | ------- | ---- | --- |
+| Growth | 30%         | 15%     | 30%  | 25% |
+| Normal | 25%         | 25%     | 20%  | 30% |
+| Crisis | 15%         | 35%     | 10%  | 40% |
+
+These are not final forever; they are the professional initial allocation before live scorecard-based adjustment. The most important principle is that weights must follow regime, confidence, and recent validated performance, not fixed preference for one model.
+

@@ -1,0 +1,114 @@
+[
+    {
+        "title": "ISM Services PMI",
+        "country": "USD",
+        "date": "2026-05-05T19:30:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "Average Hourly Earnings m/m",
+        "country": "USD",
+        "date": "2026-05-08T18:00:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "Core CPI m/m",
+        "country": "USD",
+        "date": "2026-05-12T18:00:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "Core PPI m/m",
+        "country": "USD",
+        "date": "2026-05-13T18:00:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "Fed Chair Nomination Vote",
+        "country": "USD",
+        "date": "2026-05-14T00:10:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "Core Retail Sales m/m",
+        "country": "USD",
+        "date": "2026-05-14T18:00:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "FOMC Meeting Minutes",
+        "country": "USD",
+        "date": "2026-05-20T23:30:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "Core PCE Price Index m/m",
+        "country": "USD",
+        "date": "2026-05-28T18:00:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "ISM Manufacturing PMI",
+        "country": "USD",
+        "date": "2026-06-01T19:30:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "ADP Non-Farm Employment Change",
+        "country": "USD",
+        "date": "2026-06-03T17:45:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "ISM Services PMI",
+        "country": "USD",
+        "date": "2026-06-03T19:30:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "Average Hourly Earnings m/m",
+        "country": "USD",
+        "date": "2026-06-05T18:00:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "Core CPI m/m",
+        "country": "USD",
+        "date": "2026-06-10T18:00:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    },
+    {
+        "title": "Core PPI m/m",
+        "country": "USD",
+        "date": "2026-06-11T18:00:00",
+        "impact": "High",
+        "forecast": "",
+        "previous": ""
+    }
+]

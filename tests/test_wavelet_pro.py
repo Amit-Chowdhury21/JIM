@@ -18,9 +18,6 @@ import pytest
 from loguru import logger
 
 from src.models.wavelet_pro import WaveletPro, WaveletProConfig, compare_wavelet_models
-from src.models.wavelet_neural_network import WaveletNeuralNetwork, WNNConfig
-from src.models.abc_optimizer import ABCOptimizer, ABCHyperparameters
-
 
 class TestWaveletProCore:
     """Test core wavelet decomposition functionality."""
@@ -224,89 +221,6 @@ class TestSignalGeneration:
         logger.info(f"✓ Weak signal confidence: {conf_weak:.2f}, Strong: {conf_strong:.2f}")
 
 
-class TestWaveletNeuralNetwork:
-    """Test WNN with Morlet activation."""
-    
-    def test_wnn_initialization(self):
-        """Verify WNN builds correctly."""
-        config = WNNConfig(input_features=30, hidden_layers=[128, 64, 32])
-        wnn = WaveletNeuralNetwork(config)
-        
-        assert wnn is not None, "WNN initialization failed"
-        logger.info("✓ WNN initialized successfully")
-    
-    def test_wnn_forward_pass(self):
-        """Verify WNN forward pass works."""
-        import torch
-        
-        config = WNNConfig(input_features=30, hidden_layers=[128, 64, 32])
-        wnn = WaveletNeuralNetwork(config)
-        
-        # Create dummy input
-        X = torch.randn(16, 30)  # Batch of 16 samples
-        
-        output = wnn(X)
-        
-        assert output.shape == (16, 1), f"Output shape mismatch: {output.shape}"
-        logger.info(f"✓ WNN forward pass: input (16,30) → output {output.shape}")
-    
-    def test_morlet_activation(self):
-        """Verify Morlet activation function works."""
-        from src.models.wavelet_neural_network import MorletActivation
-        import torch
-        
-        morlet = MorletActivation()
-        x = torch.randn(100)
-        
-        y = morlet(x)
-        
-        assert y.shape == x.shape, "Morlet activation shape mismatch"
-        assert torch.all(torch.isfinite(y)), "Morlet activation produces non-finite values"
-        
-        logger.info("✓ Morlet activation function verified")
-
-
-class TestABCOptimizer:
-    """Test ABC hyperparameter optimization."""
-    
-    def test_abc_initialization(self):
-        """Verify ABC optimizer initializes."""
-        param_space = ABCHyperparameters()
-        
-        def dummy_objective(params):
-            return np.random.uniform(0, 1)
-        
-        abc = ABCOptimizer(
-            objective_fn=dummy_objective,
-            param_space=param_space,
-            population_size=10,
-            max_iterations=5,
-        )
-        
-        assert abc is not None, "ABC initialization failed"
-        logger.info("✓ ABC optimizer initialized")
-    
-    def test_abc_solution_generation(self):
-        """Verify ABC generates valid solutions."""
-        param_space = ABCHyperparameters()
-        
-        def dummy_objective(params):
-            return 1.0
-        
-        abc = ABCOptimizer(
-            objective_fn=dummy_objective,
-            param_space=param_space,
-            population_size=5,
-            max_iterations=2,
-        )
-        
-        solution = abc._random_solution()
-        
-        assert "learning_rate" in solution, "Missing learning_rate"
-        assert "num_hidden_layers" in solution, "Missing hidden_layers"
-        assert "neurons_per_layer" in solution, "Missing neurons_per_layer"
-        
-        logger.info(f"✓ Sample solution: {solution}")
 
 
 class TestModelComparison:

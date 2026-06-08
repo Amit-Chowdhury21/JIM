@@ -48,16 +48,16 @@ function ModelConfigCard({ title, badge, configs, architecture, capabilities }) 
   );
 }
 
-const modelIcons = { wavelet: '🌊', hmm: '📊', lstm: '🧠', tft: '⚡', genetic: '🧬', nlp: '📰', ensemble: '🎯' };
-const modelColors = { wavelet: '#3b82f6', hmm: '#a855f7', lstm: '#06b6d4', tft: '#f59e0b', genetic: '#22c55e', nlp: '#ec4899', ensemble: '#ef4444' };
+const modelIcons = { wavelet_pro: '🌊', hmm_pro: '📊', lstm: '🧠', tft_pro: '⚡', ensemble: '🎯' };
+const modelColors = { wavelet_pro: '#3b82f6', hmm_pro: '#a855f7', lstm: '#06b6d4', tft_pro: '#f59e0b', ensemble: '#ef4444' };
 const signalColor = (s) => s === 'LONG' ? 'var(--green)' : s === 'SHORT' ? 'var(--red)' : 'var(--text-muted)';
 const signalBg = (s) => s === 'LONG' ? 'var(--green-dim)' : s === 'SHORT' ? 'var(--red-dim)' : 'var(--bg-input)';
 
 // Static fallback weights (mirrors dynamic_weights.py REGIME_BASE_WEIGHTS)
 const FALLBACK_REGIME_WEIGHTS = {
-  GROWTH:  { wavelet:0.08, hmm:0.05, lstm:0.22, tft:0.22, genetic:0.10, nlp:0.08, ensemble:0.25 },
-  NORMAL:  { wavelet:0.12, hmm:0.12, lstm:0.14, tft:0.14, genetic:0.12, nlp:0.08, ensemble:0.28 },
-  CRISIS:  { wavelet:0.10, hmm:0.25, lstm:0.05, tft:0.05, genetic:0.08, nlp:0.12, ensemble:0.35 },
+  GROWTH:  { wavelet_pro:0.18, hmm_pro:0.15, lstm:0.22, tft_pro:0.22, ensemble:0.23 },
+  NORMAL:  { wavelet_pro:0.24, hmm_pro:0.24, lstm:0.14, tft_pro:0.14, ensemble:0.24 },
+  CRISIS:  { wavelet_pro:0.18, hmm_pro:0.33, lstm:0.07, tft_pro:0.07, ensemble:0.35 },
 };
 const REGIMES = ['GROWTH', 'NORMAL', 'CRISIS'];
 const regimeColors = { GROWTH: '#00c48c', NORMAL: '#ff9f43', CRISIS: '#ff4d6a' };
@@ -232,22 +232,32 @@ export default function Models() {
   const iteration = liveSignals?.iteration || 0;
 
   // Radar chart data
+  const activeModelsList = ['wavelet_pro', 'hmm_pro', 'lstm', 'tft_pro', 'ensemble'];
   const radarData = models
-    ? Object.entries(models).map(([name, d]) => ({ model: name, confidence: (d.confidence || 0) * 100 }))
-    : Object.entries(modelMetrics).map(([name, d]) => ({
+    ? Object.entries(models)
+        .filter(([name]) => activeModelsList.includes(name))
+        .map(([name, d]) => ({ model: name, confidence: (d.confidence || 0) * 100 }))
+    : Object.entries(modelMetrics)
+        .filter(([name]) => activeModelsList.includes(name))
+        .map(([name, d]) => ({
       model: name, confidence: name === 'ensemble' ? (d.winRate || 0) * 100 : (d.accuracy || d.winRate || 0.6) * 100,
     }));
 
   // Signal log — from live signals or mock
   const signalLog = models
-    ? Object.entries(models).map(([name, d], i) => ({
-      id: i + 1,
-      time: d.last_updated ? new Date(d.last_updated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--',
-      type: d.signal || 'HOLD',
-      source: name.charAt(0).toUpperCase() + name.slice(1),
-      confidence: d.confidence || 0,
-      status: d.signal && d.signal !== 'HOLD' ? 'active' : 'idle',
-    }))
+    ? Object.entries(models)
+        .filter(([name]) => activeModelsList.includes(name))
+        .map(([name, d], i) => {
+          const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+          return {
+            id: i + 1,
+            time: d.last_updated ? new Date(d.last_updated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--',
+            type: d.signal || 'HOLD',
+            source: displayName,
+            confidence: d.confidence || 0,
+            status: d.signal && d.signal !== 'HOLD' ? 'active' : 'idle',
+          };
+        })
     : [];
 
   return (
@@ -256,7 +266,7 @@ export default function Models() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2>Models & Signals</h2>
-            <p>Production-Grade — 7 Models (Wavelet, HMM, LSTM, TFT, Genetic, NLP, Ensemble) • {live ? 'Live Inference Active' : 'Offline (Static Data)'}</p>
+            <p>Production-Grade — 5 Models (Wavelet Pro, HMM Regime, LSTM, TFT Pro, Ensemble) • {live ? 'Live Inference Active' : 'Offline (Static Data)'}</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {inferenceRunning && (
@@ -286,13 +296,11 @@ export default function Models() {
         {/* Model Stats */}
         <div className="kpi-grid" style={{ marginBottom: 20 }}>
           {[
-            { label: 'HMM Regime', value: `${(modelMetrics.hmm.accuracy * 100).toFixed(1)}%`, sub: liveRegime ? `Regime: ${liveRegime.regime}` : `3 regimes • ${modelMetrics.hmm.config.covarianceType} cov` },
-            { label: 'Wavelet SNR', value: `+${modelMetrics.wavelet.snrDb} dB`, sub: `${modelMetrics.wavelet.noiseRemoved}% noise • ${modelMetrics.wavelet.config.thresholdMethod}` },
+            { label: 'HMM Regime', value: `${(modelMetrics.hmm_pro.accuracy * 100).toFixed(1)}%`, sub: liveRegime ? `Regime: ${liveRegime.regime}` : `3 regimes • ${modelMetrics.hmm_pro.config.covarianceType} cov` },
+            { label: 'Wavelet SNR', value: `+${modelMetrics.wavelet_pro.snrDb} dB`, sub: `${modelMetrics.wavelet_pro.noiseRemoved}% noise • ${modelMetrics.wavelet_pro.config.thresholdMethod}` },
             { label: 'Ensemble Sharpe', value: modelMetrics.ensemble.sharpe.toFixed(2), sub: `${modelMetrics.ensemble.config.metaLearner} • PF ${modelMetrics.ensemble.profitFactor}` },
             { label: 'LSTM Temporal', value: modelMetrics.lstm.valLoss.toFixed(4), sub: `BiLSTM ${modelMetrics.lstm.config.hiddenSize}×${modelMetrics.lstm.config.numLayers} • 15 features` },
-            { label: 'Genetic Fitness', value: modelMetrics.genetic.bestFitness.toFixed(2), sub: `${modelMetrics.genetic.config.nRulesPerChromosome} rules • ${modelMetrics.genetic.config.populationSize} pop` },
-            { label: 'TFT Forecaster', value: modelMetrics.tft.valLoss.toFixed(4), sub: `${modelMetrics.tft.config.attentionHeads}h attn • ${modelMetrics.tft.config.forecastHorizons.length} horizons` },
-            { label: 'NLP FinBERT', value: `${(modelMetrics.nlp.accuracy * 100).toFixed(1)}%`, sub: liveSignals?.models?.nlp?.signal || `${modelMetrics.nlp.config.sources.length} RSS feeds` },
+            { label: 'TFT Pro Forecaster', value: modelMetrics.tft_pro.valLoss.toFixed(4), sub: `${modelMetrics.tft_pro.config.attentionHeads}h attn • ${modelMetrics.tft_pro.config.forecastHorizons.length} horizons` },
           ].map((m, i) => (
             <div key={i} className="kpi-card animate-in">
               <div className="kpi-label">{m.label}</div>
@@ -315,13 +323,16 @@ export default function Models() {
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-              {Object.entries(models).map(([name, data]) => {
+              {Object.entries(models)
+                .filter(([name]) => ['wavelet_pro', 'hmm_pro', 'lstm', 'tft_pro', 'ensemble'].includes(name))
+                .map(([name, data]) => {
                 const sig = data.signal || 'IDLE';
                 const conf = ((data.confidence || 0) * 100).toFixed(0);
                 const updatedAgo = data.last_updated
                   ? new Date(data.last_updated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
                   : 'never';
                 const reasoning = (data.reasoning || '').slice(0, 100) || 'Awaiting inference...';
+                const displayName = name.replace('_', ' ');
                 return (
                   <div key={name} style={{
                     padding: 16, borderRadius: 'var(--radius-sm)',
@@ -334,7 +345,7 @@ export default function Models() {
                           width: 28, height: 28, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 14, background: `${modelColors[name]}20`, color: modelColors[name],
                         }}>{modelIcons[name]}</span>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-bright)', textTransform: 'capitalize' }}>{name}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-bright)', textTransform: 'capitalize' }}>{displayName}</span>
                       </div>
                       <span style={{
                         fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 12,
@@ -405,29 +416,29 @@ export default function Models() {
 
         {/* Model Architecture Configs — Row 1: Signal Processing */}
         <div className="grid-3" style={{ marginBottom: 16 }}>
-          <ModelConfigCard title="🌊 Wavelet Denoiser" badge="wavelet.py" architecture={modelMetrics.wavelet.architecture} capabilities={modelMetrics.wavelet.capabilities} configs={[
-            ['Wavelet Family', modelMetrics.wavelet.config.family], ['Decomposition Levels', modelMetrics.wavelet.config.levels],
-            ['Threshold Method', modelMetrics.wavelet.config.thresholdMethod], ['Threshold Mode', modelMetrics.wavelet.config.thresholdMode],
-            ['Remove Levels', modelMetrics.wavelet.config.denoiseRemoveLevels.join(', ')], ['Min Samples', modelMetrics.wavelet.config.minSamples],
-            ['SNR Improvement', `+${modelMetrics.wavelet.snrDb} dB`], ['Noise Removed', `${modelMetrics.wavelet.noiseRemoved}%`],
-            ['Retrain', modelMetrics.wavelet.config.retrainFrequency],
+          <ModelConfigCard title="🌊 Wavelet Pro" badge="wavelet_pro.py" architecture={modelMetrics.wavelet_pro.architecture} capabilities={modelMetrics.wavelet_pro.capabilities} configs={[
+            ['Wavelet Family', modelMetrics.wavelet_pro.config.family], ['Decomposition Levels', modelMetrics.wavelet_pro.config.levels],
+            ['Threshold Method', modelMetrics.wavelet_pro.config.thresholdMethod], ['Threshold Mode', modelMetrics.wavelet_pro.config.thresholdMode],
+            ['Remove Levels', modelMetrics.wavelet_pro.config.denoiseRemoveLevels.join(', ')], ['Min Samples', modelMetrics.wavelet_pro.config.minSamples],
+            ['SNR Improvement', `+${modelMetrics.wavelet_pro.snrDb} dB`], ['Noise Removed', `${modelMetrics.wavelet_pro.noiseRemoved}%`],
+            ['Retrain', modelMetrics.wavelet_pro.config.retrainFrequency],
           ]} />
-          <ModelConfigCard title="📊 HMM Regime Detector" badge="hmm_regime.py" architecture={modelMetrics.hmm.architecture} capabilities={modelMetrics.hmm.capabilities} configs={[
-            ['Regimes', modelMetrics.hmm.config.nRegimes], ['Covariance', modelMetrics.hmm.config.covarianceType],
-            ['EM Iterations', modelMetrics.hmm.config.nIter.toLocaleString()], ['Min Duration', `${modelMetrics.hmm.config.minRegimeDuration} bars`],
-            ['Persistence Wt', modelMetrics.hmm.config.regimePersistenceWeight], ['Vol Windows', modelMetrics.hmm.config.volWindows.join(', ')],
-            ['Accuracy', `${(modelMetrics.hmm.accuracy * 100).toFixed(1)}%`], ['Retrain', modelMetrics.hmm.config.retrainFrequency],
+          <ModelConfigCard title="📊 HMM Regime Detector" badge="hmm_regime.py" architecture={modelMetrics.hmm_pro.architecture} capabilities={modelMetrics.hmm_pro.capabilities} configs={[
+            ['Regimes', modelMetrics.hmm_pro.config.nRegimes], ['Covariance', modelMetrics.hmm_pro.config.covarianceType],
+            ['EM Iterations', modelMetrics.hmm_pro.config.nIter.toLocaleString()], ['Min Duration', `${modelMetrics.hmm_pro.config.minRegimeDuration} bars`],
+            ['Persistence Wt', modelMetrics.hmm_pro.config.regimePersistenceWeight], ['Vol Windows', modelMetrics.hmm_pro.config.volWindows.join(', ')],
+            ['Accuracy', `${(modelMetrics.hmm_pro.accuracy * 100).toFixed(1)}%`], ['Retrain', modelMetrics.hmm_pro.config.retrainFrequency],
           ]} />
-          <ModelConfigCard title="🧬 Genetic Algorithm" badge="genetic_algorithm.py" architecture={modelMetrics.genetic.architecture} capabilities={modelMetrics.genetic.capabilities} configs={[
-            ['Population', modelMetrics.genetic.config.populationSize], ['Generations', modelMetrics.genetic.config.generations],
-            ['Crossover', modelMetrics.genetic.config.crossoverProb], ['Mutation', modelMetrics.genetic.config.mutationProb],
-            ['Tournament Size', modelMetrics.genetic.config.tournamentSize], ['Elite %', `${(modelMetrics.genetic.config.elitePct * 100)}%`],
-            ['Rules/Chromosome', modelMetrics.genetic.config.nRulesPerChromosome], ['Best Fitness', modelMetrics.genetic.bestFitness],
+          <ModelConfigCard title="🎛️ HMM Pro GPU Engine" badge="C++ / CUDA" architecture="Variational Gaussian Mixture + GPU Parallelism" capabilities={['GPU Acceleration', 'Scalable Inference', 'Variational Posterior']} configs={[
+            ['Precision', 'FP16 Mixed'], ['Backend', 'CUDA / cuBLAS'],
+            ['Components', 'Gaussian Mixtures'], ['Latent Dim', 'Variable'],
+            ['Memory', 'Shared / Pinned'], ['Fallback', 'CPU Fallback enabled'],
+            ['Auto-Tune', 'Active'], ['Throughput', '~1M ops/sec'],
           ]} />
         </div>
 
         {/* Row 2: Deep Learning */}
-        <div className="grid-3" style={{ marginBottom: 16 }}>
+        <div className="grid-2" style={{ marginBottom: 16 }}>
           <ModelConfigCard title="🧠 LSTM Temporal" badge="PyTorch BiLSTM" architecture={modelMetrics.lstm.architecture} capabilities={modelMetrics.lstm.capabilities} configs={[
             ['Hidden Size', modelMetrics.lstm.config.hiddenSize], ['Layers', modelMetrics.lstm.config.numLayers],
             ['Bidirectional', modelMetrics.lstm.config.bidirectional], ['Dropout', modelMetrics.lstm.config.dropout],
@@ -435,17 +446,11 @@ export default function Models() {
             ['Patience', modelMetrics.lstm.config.patience], ['Grad Clip', modelMetrics.lstm.config.gradClip],
             ['Input Features', 15], ['Parameters', (modelMetrics.lstm.parameters || 0).toLocaleString()],
           ]} />
-          <ModelConfigCard title="⚡ TFT Forecaster" badge="Transformer" architecture={modelMetrics.tft.architecture} capabilities={modelMetrics.tft.capabilities} configs={[
-            ['d_model', modelMetrics.tft.config.dModel], ['Attention Heads', modelMetrics.tft.config.attentionHeads],
-            ['Layers', modelMetrics.tft.config.nLayers], ['Dropout', modelMetrics.tft.config.dropout],
-            ['Seq Length', modelMetrics.tft.config.seqLength], ['Horizons', modelMetrics.tft.config.forecastHorizons.join(', ')],
-            ['Quantiles', modelMetrics.tft.config.quantiles.join(', ')], ['Retrain', modelMetrics.tft.config.retrainFrequency],
-          ]} />
-          <ModelConfigCard title="📰 NLP Sentiment" badge="FinBERT" architecture={modelMetrics.nlp.architecture} capabilities={modelMetrics.nlp.capabilities} configs={[
-            ['Model', modelMetrics.nlp.config.model], ['Device', modelMetrics.nlp.config.device === -1 ? 'CPU' : 'GPU'],
-            ['Max Headlines', modelMetrics.nlp.config.maxHeadlines], ['Scan Interval', modelMetrics.nlp.config.scanInterval],
-            ['Sources', modelMetrics.nlp.config.sources.join(', ')], ['Min Relevance', modelMetrics.nlp.config.minRelevanceScore],
-            ['Accuracy', `${((modelMetrics.nlp.accuracy) * 100).toFixed(1)}%`], ['Momentum Window', modelMetrics.nlp.config.sentimentMomentumWindow],
+          <ModelConfigCard title="⚡ TFT Pro Forecaster" badge="Transformer" architecture={modelMetrics.tft_pro.architecture} capabilities={modelMetrics.tft_pro.capabilities} configs={[
+            ['d_model', modelMetrics.tft_pro.config.dModel], ['Attention Heads', modelMetrics.tft_pro.config.attentionHeads],
+            ['Layers', modelMetrics.tft_pro.config.nLayers], ['Dropout', modelMetrics.tft_pro.config.dropout],
+            ['Seq Length', modelMetrics.tft_pro.config.seqLength], ['Horizons', modelMetrics.tft_pro.config.forecastHorizons.join(', ')],
+            ['Quantiles', modelMetrics.tft_pro.config.quantiles.join(', ')], ['Retrain', modelMetrics.tft_pro.config.retrainFrequency],
           ]} />
         </div>
 

@@ -120,7 +120,7 @@ export const positionManager = {
 };
 
 export const modelMetrics = {
-  wavelet: {
+  wavelet_pro: {
     noiseRemoved: 32.6, bands: 5, snrImprovement: 9.0, snrDb: 9.0, family: 'db4',
     status: 'production', lastTrained: '2026-05-20T12:00',
     architecture: 'DWT → BayesShrink → IDWT → Trend Analysis',
@@ -133,7 +133,7 @@ export const modelMetrics = {
       'Multi-scale frequency band analysis', 'Wavelet coherence (cross-asset)', 'Energy ratio trend strength'],
     energyRatios: { trend: 0.42, slowCycle: 0.18, mediumCycle: 0.12, fastCycle: 0.08, noise: 0.20 },
   },
-  hmm: {
+  hmm_pro: {
     accuracy: 0.681, lastTrained: '2026-05-20T08:00', regimeChanges: 14, logLikelihood: -234.5,
     status: 'production',
     architecture: '7-Feature Observation → GaussianHMM(3) → Vol-Ordered Regimes → Transition Matrix',
@@ -169,7 +169,7 @@ export const modelMetrics = {
       'volume_zscore', 'return_acceleration', 'dxy_momentum', 'yield_momentum', 'spread_proxy'],
     parameters: 847363,
   },
-  tft: {
+  tft_pro: {
     valLoss: 0.0019, epochs: 65, attentionHeads: 4,
     status: 'production', lastTrained: '2026-05-19T22:00',
     architecture: 'Variable Selection → GRN → Multi-Head Attention(4h×2L) → Quantile Output',
@@ -186,34 +186,7 @@ export const modelMetrics = {
     variableImportance: { returns: 0.18, vol_10: 0.14, rsi_14: 0.12, momentum_5: 0.11,
       bb_pos: 0.09, atr_mom: 0.08, vol_20: 0.07, rsi_7: 0.06, dxy: 0.05, yield: 0.05, rsi_21: 0.03, mom_20: 0.02 },
   },
-  genetic: {
-    bestFitness: 2.87, bestSharpe: 2.54, bestWinRate: 0.58, generation: 100,
-    status: 'production', lastTrained: '2026-05-20T06:00',
-    architecture: 'Population(200) → Tournament(k=5) → Crossover + Mutation → Elitism(10%)',
-    config: {
-      populationSize: 200, generations: 100, crossoverProb: 0.7, mutationProb: 0.1,
-      fitness: 'sharpe_adjusted', tournamentSize: 5, elitePct: 0.10, nRulesPerChromosome: 8,
-      retrainFrequency: 'daily',
-    },
-    capabilities: ['8 rule types (SMA crossover, momentum, VWAP, breakout, reversal, mean-reversion, volume-weighted, range contraction)',
-      'Tournament selection with elitism', 'Adaptive mutation rate',
-      'Multi-objective fitness (Sharpe×0.7 + WinRate×0.3)', 'Chromosome crossover'],
-    ruleTypes: ['sma_crossover', 'momentum', 'vwap_return', 'breakout', 'reversal', 'mean_reversion', 'volume_weighted', 'range_contraction'],
-  },
-  nlp: {
-    accuracy: 0.645, sentimentScore: 0.78, lastTrained: 'pretrained',
-    status: 'production',
-    architecture: 'RSS Feeds → Keyword Filter → Dedup → FinBERT → Macro Inversion → Momentum',
-    config: {
-      model: 'ProsusAI/finbert', device: -1, maxHeadlines: 15,
-      sentimentMomentumWindow: 10, minRelevanceScore: 1.0, scanInterval: '5 min',
-      sources: ['ForexLive', 'WSJ', 'CNBC'],
-    },
-    capabilities: ['FinBERT (ProsusAI/finbert) financial sentiment', 'Multi-source RSS aggregation',
-      'Gold-specific keyword weighting (20+ terms)', 'Headline deduplication (MD5 hashing)',
-      'Sentiment momentum tracking', 'Macro inversion heuristic (negative news = bullish gold)'],
-    keywords: { gold: 2.0, fed: 1.5, inflation: 1.3, crisis: 1.5, 'safe haven': 2.0, dollar: 1.3, recession: 1.5 },
-  },
+
   ensemble: {
     sharpe: 2.56, winRate: 0.572, profitFactor: 1.81, avgReturn: 0.15,
     status: 'production', lastTrained: '2026-05-20T08:00',
@@ -226,9 +199,9 @@ export const modelMetrics = {
       'Performance-adaptive EWMA accuracy tracking', 'Model disagreement detection + confidence penalty',
       'Signed confidence feature engineering', 'Macro overlay integration'],
     regimeWeights: {
-      GROWTH: { wavelet: 0.10, hmm: 0.10, lstm: 0.20, tft: 0.25, genetic: 0.15, nlp: 0.10 },
-      NORMAL: { wavelet: 0.15, hmm: 0.15, lstm: 0.15, tft: 0.20, genetic: 0.20, nlp: 0.15 },
-      CRISIS: { wavelet: 0.25, hmm: 0.20, lstm: 0.05, tft: 0.05, genetic: 0.15, nlp: 0.30 },
+      GROWTH: { wavelet_pro: 0.10, hmm_pro: 0.10, lstm: 0.20, tft_pro: 0.25,  },
+      NORMAL: { wavelet_pro: 0.15, hmm_pro: 0.15, lstm: 0.15, tft_pro: 0.20,  },
+      CRISIS: { wavelet_pro: 0.25, hmm_pro: 0.20, lstm: 0.05, tft_pro: 0.05,  },
     },
   },
 };
@@ -389,11 +362,10 @@ export const paperTrading = {
     sharpeRatio: 1.92, maxDrawdown: -2.1, winRate: 0.58, numTrades: 47,
   },
   modelSignals: {
-    wavelet: { lastSignal: 'LONG', confidence: 0.78, signalCount: 142 },
-    hmm: { lastSignal: 'LONG', confidence: 0.72, signalCount: 138 },
+    wavelet_pro: { lastSignal: 'LONG', confidence: 0.78, signalCount: 142 },
+    hmm_pro: { lastSignal: 'LONG', confidence: 0.72, signalCount: 138 },
     lstm: { lastSignal: 'HOLD', confidence: 0.65, signalCount: 155 },
-    tft: { lastSignal: 'LONG', confidence: 0.81, signalCount: 148 },
-    genetic: { lastSignal: 'SHORT', confidence: 0.59, signalCount: 130 },
+    tft_pro: { lastSignal: 'LONG', confidence: 0.81, signalCount: 148 },
     ensemble: { lastSignal: 'LONG', confidence: 0.76, signalCount: 160 },
   },
   recentTrades: [
